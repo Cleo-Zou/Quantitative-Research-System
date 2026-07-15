@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import pandas as pd
 import akshare as ak
@@ -87,6 +88,15 @@ def _has_exclude_pattern(name: str) -> bool:
             return True
     return False
 
+
+def _extract_share_class(name: str) -> str:
+    m = re.search(r"([ABCDE])$", name)
+    return m.group(1) if m else ""
+
+
+def _is_link_fund(name: str) -> bool:
+    return "联接" in name
+
 def build_candidate_pool(all_funds: pd.DataFrame) -> pd.DataFrame:
     print("\n" + "=" * 60)
     print("Step 2 / 4  宽松粗筛（指数 OR 增强）")
@@ -168,10 +178,12 @@ def _fetch_fund_detail_em(fund_code: str) -> dict | None:
                     info_dict[k] = v
 
             detail: dict = {
+                "benchmark_raw": "",
+                "objective_raw": "",
                 "benchmark": "",
                 "objective": "",
-                "company": "",
-                "manager": "",
+                "fund_company": "",
+                "fund_manager": "",
                 "launch_date": "",
                 "scale": "",
             }
@@ -180,13 +192,15 @@ def _fetch_fund_detail_em(fund_code: str) -> dict | None:
                 if val in ("—", "-", "暂无", "None", "nan", ""):
                     continue
                 if "业绩比较基准" in key or "业绩基准" in key:
+                    detail["benchmark_raw"] = val
                     detail["benchmark"] = val
                 elif "投资目标" in key:
+                    detail["objective_raw"] = val
                     detail["objective"] = val
                 elif "管理人" in key or "基金管理人" in key:
-                    detail["company"] = val
+                    detail["fund_company"] = val
                 elif "基金经理" in key:
-                    detail["manager"] = val
+                    detail["fund_manager"] = val
                 elif "成立" in key and ("日期" in key or "时间" in key):
                     detail["launch_date"] = val
                 elif "规模" in key or "资产净值" in key or "资产规模" in key:
@@ -315,17 +329,24 @@ def verify_index_enhancement(candidates: pd.DataFrame) -> pd.DataFrame:
         verified.append({
             "fund_code": code,
             "fund_name": name,
+            "fund_company": detail.get("fund_company", ""),
+            "fund_manager": detail.get("fund_manager", ""),
             "benchmark_index": identified_index,
+            "benchmark_name": INDEX_NAMES.get(identified_index, identified_index),
+            "benchmark_raw": detail.get("benchmark_raw", ""),
+            "objective_raw": detail.get("objective_raw", ""),
             "strategy_type": "指数增强",
-            "company": detail.get("company", ""),
-            "manager": detail.get("manager", ""),
+            "enhancement_flag": True,
             "launch_date": detail.get("launch_date", ""),
             "scale": detail.get("scale", ""),
+            "share_class": _extract_share_class(name),
+            "is_link": _is_link_fund(name),
             "source": (
                 "name_match"
                 if coarse_index == identified_index
                 else "detail_discover"
             ),
+            "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
         })
 
         # 定期保存中间结果（防中断）
@@ -377,13 +398,20 @@ def save_fund_master(fund_pool: pd.DataFrame) -> None:
     columns = [
         "fund_code",
         "fund_name",
+        "fund_company",
+        "fund_manager",
         "benchmark_index",
+        "benchmark_name",
+        "benchmark_raw",
+        "objective_raw",
         "strategy_type",
-        "company",
-        "manager",
+        "enhancement_flag",
         "launch_date",
         "scale",
+        "share_class",
+        "is_link",
         "source",
+        "update_time",
     ]
 
     for col in columns:
@@ -414,16 +442,19 @@ def save_fund_master(fund_pool: pd.DataFrame) -> None:
     print(f"  共 {len(fund_pool)} 只基金\n")
 
     # 预览
-    print(f"{'─' * 72}")
+    print(f"{'─' * 80}")
     print("预览（前 20 行）:")
-    print(f"{'─' * 72}")
-    print(f"{'代码':<8} {'名称':<30} {'指数':<10} {'来源'}")
-    print(f"{'─' * 72}")
+    print(f"{'─' * 80}")
+    print(f"{'代码':<8} {'名称':<26} {'公司':<12} {'指数':<10} {'份额':<5} {'联接'}")
+    print(f"{'─' * 80}")
     for _, r in fund_pool.head(20).iterrows():
         idx_label = INDEX_NAMES.get(r["benchmark_index"], r["benchmark_index"])
         print(
-            f"{r['fund_code']:<8} {r['fund_name']:<30} "
-            f"{idx_label:<10} {r['source']}"
+            f"{r['fund_code']:<8} {r['fund_name']:<26} "
+            f"{r.get('fund_company', '')[:10]:<12} "
+            f"{idx_label:<10} "
+            f"{r.get('share_class', ''):<5} "
+            f"{'是' if r.get('is_link') else '否'}"
         )
     if len(fund_pool) > 20:
         print(f"  ... (共 {len(fund_pool)} 只)")
