@@ -1,0 +1,71 @@
+name: 每日更新指数增强基金排名
+
+on:
+  schedule:
+    # 北京时间每个交易日 16:30 (UTC 08:30)
+    - cron: "30 8 * * 1-5"
+  # 也允许手动触发
+  workflow_dispatch:
+
+# GitHub Pages 部署权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 确保只有一个实例在运行
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 恢复数据缓存
+        uses: actions/cache@v4
+        id: cache-data
+        with:
+          path: data/
+          key: fund-data-${{ hashFiles('data/fund_detail_cache.parquet') }}-${{ github.run_id }}
+          restore-keys: |
+            fund-data-
+
+      - name: [1/4] 更新基金池
+        run: python 01_build_fund_pool1.py
+
+      - name: [2/4] 获取最新净值
+        run: python 02_update_nav.py
+
+      - name: [3/4] 计算涨跌幅与超额
+        run: python 03_calculate_return.py
+
+      - name: [4/4] 生成 HTML
+        run: python 04_generate_html.py
+
+      - name: 配置 GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: output/
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
