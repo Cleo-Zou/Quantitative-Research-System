@@ -43,33 +43,57 @@ def load_fund_master() -> list[str]:
 
 
 def fetch_fund_nav(fund_code: str) -> pd.DataFrame | None:
+    """获取单只基金历史净值（合并单位净值 + 累计净值）。
+
+    调用两次 fund_open_fund_info_em：
+    1. "单位净值走势" → unit_nav
+    2. "累计净值走势" → adj_nav（累计净值作为复权净值的代理）
+    """
     for attempt in range(1 + MAX_RETRIES):
         try:
-            df = ak.fund_open_fund_info_em(
+            # ── 第一次: 单位净值 ──
+            df_unit = ak.fund_open_fund_info_em(
                 symbol=fund_code,
                 indicator="单位净值走势",
             )
-
-            if df is None or df.empty:
+            if df_unit is None or df_unit.empty:
                 return None
 
-            date_col = _find_col(df, "净值日期", "日期", "date")
-            unit_col = _find_col(df, "单位净值", "unit")
-            acc_col = _find_col(df, "累计净值", "acc")
-            adj_col = _find_col(df, "复权净值", "adj")
+            unit_date_col = _find_col(df_unit, "净值日期", "日期", "date")
+            unit_val_col = _find_col(df_unit, "单位净值", "unit")
 
-            if date_col is None:
+            if unit_date_col is None or unit_val_col is None:
                 return None
 
             result = pd.DataFrame()
-            result["date"] = pd.to_datetime(df[date_col]).dt.date
+            result["date"] = pd.to_datetime(df_unit[unit_date_col]).dt.date
+            result["unit_nav"] = pd.to_numeric(
+                df_unit[unit_val_col], errors="coerce"
+            )
 
-            if unit_col:
-                result["unit_nav"] = pd.to_numeric(df[unit_col], errors="coerce")
-            if acc_col:
-                result["acc_nav"] = pd.to_numeric(df[acc_col], errors="coerce")
-            if adj_col:
-                result["adj_nav"] = pd.to_numeric(df[adj_col], errors="coerce")
+            # ── 第二次: 累计净值（作为 adj_nav） ──
+            time.sleep(0.3)  # 同一只基金两次调用之间稍作停顿
+            df_acc = ak.fund_open_fund_info_em(
+                symbol=fund_code,
+                indicator="累计净值走势",
+            )
+
+            if df_acc is not None and not df_acc.empty:
+                acc_date_col = _find_col(df_acc, "净值日期", "日期", "date")
+                acc_val_col = _find_col(df_acc, "累计净值", "acc")
+                if acc_date_col and acc_val_col:
+                    df_acc_mapped = pd.DataFrame()
+                    df_acc_mapped["date"] = pd.to_datetime(
+                        df_acc[acc_date_col]
+                    ).dt.date
+                    df_acc_mapped["adj_nav"] = pd.to_numeric(
+                        df_acc[acc_val_col], errors="coerce"
+                    )
+                    result = result.merge(df_acc_mapped, on="date", how="outer")
+
+            # 如果累计净值获取失败，用单位净值兜底
+            if "adj_nav" not in result.columns:
+                result["adj_nav"] = result["unit_nav"]
 
             result["update_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
             result = result.dropna(subset=["date"])

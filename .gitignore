@@ -24,3 +24,15 @@ Thumbs.db
 .env
 .venv/
 venv/
+
+# Generated data (output of pipeline scripts)
+data/nav/
+data/index/
+data/return/
+data/log/
+data/*.parquet
+data/*.csv
+!data/manual_include.csv
+data/manual_exclude.csv
+output/
+test.py
