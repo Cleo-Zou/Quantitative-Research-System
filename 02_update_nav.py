@@ -1,5 +1,8 @@
 import os
+import random
 import time
+from datetime import date
+
 import pandas as pd
 import akshare as ak
 
@@ -10,22 +13,13 @@ from config import (
     REQUEST_DELAY,
     MAX_RETRIES,
 )
-
-
-def _format_seconds(sec: float) -> str:
-    if sec < 60:
-        return f"{sec:.0f}s"
-    m, s = divmod(int(sec), 60)
-    return f"{m}min{s}s"
-
-
-def _find_col(df: pd.DataFrame, *candidates: str) -> str | None:
-    for col in df.columns:
-        col_str = str(col)
-        for c in candidates:
-            if c in col_str:
-                return col
-    return None
+from utils import (
+    find_col,
+    format_seconds,
+    get_last_business_day,
+    safe_read_parquet,
+    safe_write_parquet,
+)
 
 
 def ensure_dirs():
@@ -59,8 +53,8 @@ def fetch_fund_nav(fund_code: str) -> pd.DataFrame | None:
             if df_unit is None or df_unit.empty:
                 return None
 
-            unit_date_col = _find_col(df_unit, "净值日期", "日期", "date")
-            unit_val_col = _find_col(df_unit, "单位净值", "unit")
+            unit_date_col = find_col(df_unit, "净值日期", "日期", "date")
+            unit_val_col = find_col(df_unit, "单位净值", "unit")
 
             if unit_date_col is None or unit_val_col is None:
                 return None
@@ -72,15 +66,15 @@ def fetch_fund_nav(fund_code: str) -> pd.DataFrame | None:
             )
 
             # ── 第二次: 累计净值（作为 adj_nav） ──
-            time.sleep(0.3)  # 同一只基金两次调用之间稍作停顿
+            time.sleep(random.uniform(0.2, 0.5))  # 同基金两次调用间随机停顿，降低频率限制触发概率
             df_acc = ak.fund_open_fund_info_em(
                 symbol=fund_code,
                 indicator="累计净值走势",
             )
 
             if df_acc is not None and not df_acc.empty:
-                acc_date_col = _find_col(df_acc, "净值日期", "日期", "date")
-                acc_val_col = _find_col(df_acc, "累计净值", "acc")
+                acc_date_col = find_col(df_acc, "净值日期", "日期", "date")
+                acc_val_col = find_col(df_acc, "累计净值", "acc")
                 if acc_date_col and acc_val_col:
                     df_acc_mapped = pd.DataFrame()
                     df_acc_mapped["date"] = pd.to_datetime(
@@ -100,19 +94,18 @@ def fetch_fund_nav(fund_code: str) -> pd.DataFrame | None:
             result = result.sort_values("date").reset_index(drop=True)
             return result
 
-        except Exception:
+        except Exception as e:
             if attempt < MAX_RETRIES:
                 time.sleep(REQUEST_DELAY * 2)
-
-    return None
+            else:
+                raise  # 最后一次重试失败，向上抛出以便记录详细原因
 
 
 def load_existing_nav(fund_code: str) -> pd.DataFrame | None:
     path = os.path.join(NAV_DIR, f"{fund_code}.parquet")
-    if not os.path.exists(path):
-        return None
-    df = pd.read_parquet(path)
-    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df = safe_read_parquet(path)
+    if df is not None:
+        df["date"] = pd.to_datetime(df["date"]).dt.date
     return df
 
 
@@ -120,16 +113,31 @@ def save_nav(fund_code: str, df: pd.DataFrame):
     df = df.drop_duplicates(subset=["date"], keep="last")
     df = df.sort_values("date").reset_index(drop=True)
     path = os.path.join(NAV_DIR, f"{fund_code}.parquet")
-    df.to_parquet(path, index=False)
+    safe_write_parquet(df, path)
 
 
 def update_single_fund_nav(fund_code: str) -> dict:
     existing = load_existing_nav(fund_code)
     last_date = None if existing is None else existing["date"].max()
 
-    fresh = fetch_fund_nav(fund_code)
+    # 已是最新：跳过 API 调用
+    if existing is not None and last_date is not None:
+        last_biz_day = get_last_business_day()
+        if last_date >= last_biz_day:
+            return {
+                "fund_code": fund_code, "status": "ok", "new": 0,
+                "reason": f"已最新 (last={last_date}, biz_day={last_biz_day})",
+            }
+
+    try:
+        fresh = fetch_fund_nav(fund_code)
+    except Exception as e:
+        return {
+            "fund_code": fund_code, "status": "fail", "new": 0,
+            "reason": f"{type(e).__name__}: {e}",
+        }
     if fresh is None:
-        return {"fund_code": fund_code, "status": "fail", "new": 0, "reason": "API"}
+        return {"fund_code": fund_code, "status": "fail", "new": 0, "reason": "API返回空数据"}
 
     now = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -155,7 +163,7 @@ def update_single_fund_nav(fund_code: str) -> dict:
 def update_all_nav(fund_codes: list[str]) -> dict:
     total = len(fund_codes)
     ok_list: list[str] = []
-    fail_list: list[str] = []
+    fail_list: list[dict] = []  # 现在存储 {code, reason, time}
     total_new = 0
     t_start = time.time()
 
@@ -163,7 +171,7 @@ def update_all_nav(fund_codes: list[str]) -> dict:
         pct = (i + 1) / total * 100
         elapsed = time.time() - t_start
         avg = elapsed / (i + 1) if i > 0 else REQUEST_DELAY
-        eta = _format_seconds(avg * (total - i - 1))
+        eta = format_seconds(avg * (total - i - 1))
 
         result = update_single_fund_nav(code)
 
@@ -172,7 +180,11 @@ def update_all_nav(fund_codes: list[str]) -> dict:
             total_new += result["new"]
             tag = f"+{result['new']}" if result["new"] > 0 else " 不变"
         else:
-            fail_list.append(code)
+            fail_list.append({
+                "fund_code": code,
+                "reason": result.get("reason", ""),
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
             tag = "失败"
 
         print(
@@ -207,13 +219,15 @@ def write_log(stats: dict):
         f"成功:     {stats['ok']}",
         f"失败:     {stats['fail']}",
         f"新增记录: {stats['total_new']}",
-        f"耗时:     {_format_seconds(stats['elapsed'])}",
+        f"耗时:     {format_seconds(stats['elapsed'])}",
     ]
     if stats["fail_list"]:
         lines.append(f"{'─' * 40}")
-        lines.append("失败基金:")
-        for code in stats["fail_list"]:
-            lines.append(f"  {code}")
+        lines.append("失败详情:")
+        for item in stats["fail_list"]:
+            lines.append(
+                f"  {item['time']}  {item['fund_code']}  {item['reason']}"
+            )
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     print(f"\n日志已保存: {log_path}")
@@ -233,7 +247,7 @@ def main():
         return
 
     total = len(fund_codes)
-    eta = _format_seconds(total * REQUEST_DELAY)
+    eta = format_seconds(total * REQUEST_DELAY)
     print(f"预计耗时 ≈ {eta}（{total} 只 × {REQUEST_DELAY}s）\n")
 
     stats = update_all_nav(fund_codes)
@@ -243,7 +257,7 @@ def main():
     print(f"  成功: {stats['ok']}")
     print(f"  失败: {stats['fail']}")
     print(f"  新增: {stats['total_new']} 条记录")
-    print(f"  耗时: {_format_seconds(stats['elapsed'])}")
+    print(f"  耗时: {format_seconds(stats['elapsed'])}")
     print(f"{'─' * 40}")
 
     write_log(stats)

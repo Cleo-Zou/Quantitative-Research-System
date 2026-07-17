@@ -51,24 +51,12 @@ from config import (
     REQUEST_DELAY,
     MAX_RETRIES,
 )
-
-
-# 工具函数
-
-def _find_col(df: pd.DataFrame, *candidates: str) -> str | None:
-    for col in df.columns:
-        col_str = str(col)
-        for c in candidates:
-            if c in col_str:
-                return col
-    return None
-
-
-def _format_seconds(sec: float) -> str:
-    if sec < 60:
-        return f"{sec:.0f}s"
-    m, s = divmod(int(sec), 60)
-    return f"{m}min{s}s"
+from utils import (
+    find_col,
+    format_seconds,
+    safe_read_parquet,
+    safe_write_parquet,
+)
 
 
 def _subtract_months(d: date, n: int) -> date:
@@ -84,11 +72,12 @@ def _subtract_months(d: date, n: int) -> date:
 
 
 def _find_nearest_trading_day(dates: pd.Series, target: date) -> date | None:
-    """在交易日序列中找到 ≤ target 的最近一个日期"""
-    mask = dates <= target
-    if not mask.any():
+    """在交易日序列中找到 ≤ target 的最近一个日期（二分查找，O(log n)）"""
+    # dates 已在 _calculate_performance 中确保升序排列
+    pos = np.searchsorted(dates.values, target, side="right") - 1
+    if pos < 0:
         return None
-    return dates[mask].max()
+    return dates.iloc[pos]
 
 
 def ensure_dirs():
@@ -99,12 +88,11 @@ def ensure_dirs():
 # 1. 加载基金池
 
 def load_fund_master() -> pd.DataFrame:
-    if not os.path.exists(FUND_MASTER_PATH):
+    df = safe_read_parquet(FUND_MASTER_PATH)
+    if df is None:
         print(f"✗ 基金主表不存在: {FUND_MASTER_PATH}")
         print("  请先运行 01_build_fund_pool.py")
         return pd.DataFrame()
-
-    df = pd.read_parquet(FUND_MASTER_PATH)
     df["fund_code"] = df["fund_code"].astype(str).str.zfill(6)
 
     print(f"读取基金池: {FUND_MASTER_PATH}")
@@ -149,9 +137,13 @@ def _calculate_performance(
     unit_values: dict = dict(zip(df["date"], df["unit_nav"])) if "unit_nav" in df.columns else {}
     adj_values: dict = dict(zip(df["date"], df["adj_nav"])) if "adj_nav" in df.columns else {}
 
-    def _change(target: date | None, values: dict) -> float | None:
+    # 提前取 latest 净值，避免闭包内重复 dict 查找
+    latest_unit: float | None = unit_values.get(latest_date) if unit_values else None
+    latest_adj: float | None = adj_values.get(latest_date) if adj_values else None
+
+    def _change(target: date | None, values: dict, latest_val: float | None) -> float | None:
         """给定起始日期和净值字典，计算 (latest / base - 1)"""
-        if target is None:
+        if target is None or latest_val is None:
             return None
         t = _find_nearest_trading_day(dates, target)
         if t is None:
@@ -159,52 +151,54 @@ def _calculate_performance(
         base = values.get(t)
         if base is None or base == 0:
             return None
-        return values[latest_date] / base - 1
+        return latest_val / base - 1
 
     result: dict = {"date": latest_date}
 
     # ── 短期：单位净值 ──
-    if unit_values:
+    if unit_values and latest_unit is not None:
         # 日涨跌
         prev_dates = dates[dates < latest_date]
         if len(prev_dates) > 0:
             prev_date = prev_dates.max()
-            result["daily_change"] = (
-                unit_values[latest_date] / unit_values[prev_date] - 1
-            )
+            prev_val = unit_values.get(prev_date)
+            if prev_val and prev_val != 0:
+                result["daily_change"] = latest_unit / prev_val - 1
+            else:
+                result["daily_change"] = None
         else:
             result["daily_change"] = None
 
         # 近一周
         result["week_change"] = _change(
-            latest_date - timedelta(days=7), unit_values
+            latest_date - timedelta(days=7), unit_values, latest_unit
         )
     else:
         result["daily_change"] = None
         result["week_change"] = None
 
     # ── 中长期：复权净值 ──
-    if adj_values:
+    if adj_values and latest_adj is not None:
         result["month_1_change"] = _change(
-            _subtract_months(latest_date, 1), adj_values
+            _subtract_months(latest_date, 1), adj_values, latest_adj
         )
         result["month_3_change"] = _change(
-            _subtract_months(latest_date, 3), adj_values
+            _subtract_months(latest_date, 3), adj_values, latest_adj
         )
         result["month_6_change"] = _change(
-            _subtract_months(latest_date, 6), adj_values
+            _subtract_months(latest_date, 6), adj_values, latest_adj
         )
         result["ytd_change"] = _change(
-            date(latest_date.year - 1, 12, 31), adj_values
+            date(latest_date.year - 1, 12, 31), adj_values, latest_adj
         )
         result["year_1_change"] = _change(
-            _subtract_months(latest_date, 12), adj_values
+            _subtract_months(latest_date, 12), adj_values, latest_adj
         )
         result["year_3_change"] = _change(
-            _subtract_months(latest_date, 36), adj_values
+            _subtract_months(latest_date, 36), adj_values, latest_adj
         )
         result["year_5_change"] = _change(
-            _subtract_months(latest_date, 60), adj_values
+            _subtract_months(latest_date, 60), adj_values, latest_adj
         )
 
         # 成立以来：取第一条 adj_nav 非空的日期
@@ -214,11 +208,10 @@ def _calculate_performance(
         if (
             first_valid_date
             and first_valid_date in adj_values
-            and latest_date in adj_values
             and first_valid_date != latest_date
         ):
             result["since_launch_change"] = (
-                adj_values[latest_date] / adj_values[first_valid_date] - 1
+                latest_adj / adj_values[first_valid_date] - 1
             )
         else:
             result["since_launch_change"] = None
@@ -235,10 +228,9 @@ def _calculate_performance(
 
 def _load_fund_nav(fund_code: str) -> pd.DataFrame | None:
     path = os.path.join(NAV_DIR, f"{fund_code}.parquet")
-    if not os.path.exists(path):
-        return None
-    df = pd.read_parquet(path)
-    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df = safe_read_parquet(path)
+    if df is not None:
+        df["date"] = pd.to_datetime(df["date"]).dt.date
     return df
 
 
@@ -248,8 +240,17 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
     print("Step 1 / 4  计算基金涨跌幅（App 口径）")
     print("=" * 60)
 
+    # 加载已有涨跌幅缓存（避免重复计算 NAV 未变化的基金）
+    cached_returns: dict[str, dict] = {}
+    existing_return = safe_read_parquet(FUND_RETURN_PATH)
+    if existing_return is not None and not existing_return.empty:
+        for _, r in existing_return.iterrows():
+            cached_returns[r["fund_code"]] = r.to_dict()
+        print(f"  已缓存涨跌幅: {len(cached_returns)} 只基金")
+
     results: list[dict] = []
     skipped: list[str] = []
+    cached_skip = 0
     total = len(fund_master)
     t_start = time.time()
 
@@ -258,12 +259,12 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
 
         elapsed = time.time() - t_start
         avg = elapsed / (i + 1) if i > 0 else 0
-        eta = _format_seconds(avg * (total - i - 1))
+        eta = format_seconds(avg * (total - i - 1))
         pct = (i + 1) / total * 100
 
         print(
             f"\r  [{i + 1:>4}/{total} {pct:>4.0f}%]  "
-            f"✓{len(results):>4}  ✗{len(skipped):>3}  "
+            f"✓{len(results):>4}  ↻{cached_skip:>3}  ✗{len(skipped):>3}  "
             f"剩余≈{eta:<8s}  "
             f"{code}",
             end="", flush=True,
@@ -286,17 +287,30 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
             keep_cols.append("unit_nav")
         if has_adj:
             keep_cols.append("adj_nav")
-        nav = nav[keep_cols].dropna(
+        nav_filtered = nav[keep_cols].dropna(
             subset=[c for c in keep_cols if c != "date"], how="all"
         )
 
-        if len(nav) < 2:
+        if len(nav_filtered) < 2:
             skipped.append(code)
             continue
 
+        nav_last_date = nav_filtered["date"].max()
+        nav_rows = len(nav_filtered)
+
+        # 检查缓存：日期一致 & 行数一致 → 复用
+        if code in cached_returns:
+            cached = cached_returns[code]
+            if (cached.get("date") == nav_last_date
+                    and cached.get("_nav_rows", 0) == nav_rows):
+                results.append(cached)
+                cached_skip += 1
+                continue
+
         try:
-            perf = _calculate_performance(nav)
+            perf = _calculate_performance(nav_filtered)
             perf["fund_code"] = code
+            perf["_nav_rows"] = nav_rows  # 辅助缓存校验，不会写入最终输出
             results.append(perf)
         except Exception:
             skipped.append(code)
@@ -304,8 +318,9 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
     print()
 
     elapsed = time.time() - t_start
-    print(f"\n  耗时: {_format_seconds(elapsed)}")
-    print(f"  ✓ 成功: {len(results)} 只")
+    print(f"\n  耗时: {format_seconds(elapsed)}")
+    print(f"  ✓ 新计算: {len(results) - cached_skip} 只")
+    print(f"  ↻ 缓存复用: {cached_skip} 只")
     print(f"  ✗ 跳过: {len(skipped)} 只")
 
     if skipped:
@@ -316,6 +331,9 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(results)
+    # 去掉缓存校验辅助列
+    if "_nav_rows" in df.columns:
+        df = df.drop(columns=["_nav_rows"])
     print(f"  最新日期: {df['date'].max()}\n")
     return df
 
@@ -334,8 +352,8 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
             if df is None or df.empty:
                 return None
 
-            date_col = _find_col(df, "date", "日期")
-            close_col = _find_col(df, "close", "收盘")
+            date_col = find_col(df, "date", "日期")
+            close_col = find_col(df, "close", "收盘")
 
             if date_col is None or close_col is None:
                 return None
@@ -358,9 +376,11 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
 
 def _load_or_fetch_index(index_code: str) -> pd.DataFrame | None:
     path = os.path.join(INDEX_DIR, f"{index_code}.parquet")
+    label = INDEX_NAMES.get(index_code, index_code)
 
-    if os.path.exists(path):
-        df = pd.read_parquet(path)
+    existing = safe_read_parquet(path)
+    if existing is not None and not existing.empty:
+        df = existing
         df["date"] = pd.to_datetime(df["date"]).dt.date
         latest_data_date = df["date"].max()
         days_since_data = (date.today() - latest_data_date).days
@@ -375,12 +395,10 @@ def _load_or_fetch_index(index_code: str) -> pd.DataFrame | None:
         if age_hours < INDEX_CACHE_MAX_AGE_HOURS:
             return df
 
-        label = INDEX_NAMES.get(index_code, index_code)
         print(f"  ⏳ {label} 缓存滞后 {days_since_data}d（{age_hours:.0f}h），重新获取...")
-
-    label = INDEX_NAMES.get(index_code, index_code)
-    if not os.path.exists(path):
+    else:
         print(f"  ⏳ {label} 本地无数据，从 AKShare 获取...")
+
     time.sleep(REQUEST_DELAY)
 
     df = _fetch_index_history(index_code)
@@ -388,35 +406,50 @@ def _load_or_fetch_index(index_code: str) -> pd.DataFrame | None:
         print(f"  ✗ {label} 获取失败")
         return None
 
-    df.to_parquet(path, index=False)
+    safe_write_parquet(df, path)
     print(f"  ✓ {label} 已保存: {path}（{len(df)} 条）")
     return df
 
 
-def _fetch_index_dividend_yield(index_code: str) -> float | None:
-    """从中证指数公司获取指数最新股息率（小数），带磁盘缓存。
+def _read_dividend_yield_cache() -> dict[str, float]:
+    """读取股息率缓存，返回 {index_code: dividend_yield}（仅当天有效）"""
+    cache_path = os.path.join(INDEX_DIR, "dividend_yield.parquet")
+    cache = safe_read_parquet(cache_path)
+    if cache is None or cache.empty:
+        return {}
+    result: dict[str, float] = {}
+    today_val = date.today()
+    for _, row in cache.iterrows():
+        cache_date = pd.Timestamp(row["cache_date"]).date()
+        if cache_date == today_val:
+            result[row["index_code"]] = float(row["dividend_yield"])
+    return result
 
-    缓存策略: 当天只请求一次，保存在 INDEX_DIR/dividend_yield.parquet
-    """
+
+def _write_dividend_yield_cache(data: dict[str, float | None]):
+    """批量写入股息率缓存（一次写盘）"""
+    cache_path = os.path.join(INDEX_DIR, "dividend_yield.parquet")
+    rows = []
+    today_val = date.today()
+    for index_code, dy in data.items():
+        if dy is not None:
+            rows.append({
+                "index_code": index_code,
+                "dividend_yield": dy,
+                "cache_date": today_val,
+            })
+    if not rows:
+        return
+    new_df = pd.DataFrame(rows)
+    safe_write_parquet(new_df, cache_path)
+
+
+def _fetch_index_dividend_yield(index_code: str) -> float | None:
+    """从中证指数公司获取指数最新股息率（小数），不含缓存逻辑。"""
     csi_code = INDEX_CSI_CODES.get(index_code)
     if csi_code is None:
         return None
 
-    cache_path = os.path.join(INDEX_DIR, "dividend_yield.parquet")
-
-    # ── 读缓存 ──
-    if os.path.exists(cache_path):
-        try:
-            cache = pd.read_parquet(cache_path)
-            row = cache[cache["index_code"] == index_code]
-            if not row.empty:
-                cache_date = pd.Timestamp(row.iloc[0]["cache_date"]).date()
-                if cache_date == date.today():
-                    return float(row.iloc[0]["dividend_yield"])
-        except Exception:
-            pass  # 缓存损坏则重新请求
-
-    # ── 请求 CSI ──
     for attempt in range(1 + MAX_RETRIES):
         try:
             df = ak.stock_zh_index_value_csindex(symbol=csi_code)
@@ -424,28 +457,14 @@ def _fetch_index_dividend_yield(index_code: str) -> float | None:
                 return None
 
             # 列名: 日期 / 市盈率1 / 市盈率2 / 股息率1 / 股息率2
-            dy_col = _find_col(df, "股息率1")
+            dy_col = find_col(df, "股息率1")
             if dy_col is None:
                 return None
 
             latest = df[dy_col].dropna()
             if latest.empty:
                 return None
-            dy = float(latest.iloc[-1]) / 100  # 百分比转小数
-
-            # ── 写缓存 ──
-            new_row = pd.DataFrame([{
-                "index_code": index_code,
-                "dividend_yield": dy,
-                "cache_date": date.today(),
-            }])
-            if os.path.exists(cache_path):
-                existing = pd.read_parquet(cache_path)
-                existing = existing[existing["index_code"] != index_code]
-                new_row = pd.concat([existing, new_row], ignore_index=True)
-            new_row.to_parquet(cache_path, index=False)
-
-            return dy
+            return float(latest.iloc[-1]) / 100  # 百分比转小数
         except Exception:
             if attempt < MAX_RETRIES:
                 time.sleep(REQUEST_DELAY * 2)
@@ -466,6 +485,10 @@ def calculate_index_performance() -> pd.DataFrame:
     print("Step 2 / 4  计算指数涨跌幅（App 口径）")
     print("=" * 60)
 
+    # 先读股息率缓存（当天有效）
+    dy_cache = _read_dividend_yield_cache()
+    dy_new: dict[str, float | None] = {}  # 本次新获取的，最后批量写盘
+
     results: list[dict] = []
 
     for index_code in ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]:
@@ -482,8 +505,13 @@ def calculate_index_performance() -> pd.DataFrame:
             nav["unit_nav"] = nav["adj_nav"]
             perf = _calculate_performance(nav)
 
-            # 获取股息率
-            dy = _fetch_index_dividend_yield(index_code)
+            # 获取股息率：缓存优先，未命中则请求 API
+            if index_code in dy_cache:
+                dy = dy_cache[index_code]
+            else:
+                dy = _fetch_index_dividend_yield(index_code)
+                dy_new[index_code] = dy
+
             if dy is not None:
                 print(f"  ✓ {label}  日期: {perf['date']}  股息率: {dy * 100:.2f}%")
             else:
@@ -495,6 +523,10 @@ def calculate_index_performance() -> pd.DataFrame:
             results.append(perf)
         except Exception as e:
             print(f"  ✗ {label} 计算失败: {e}")
+
+    # 批量写入本次新获取的股息率
+    if dy_new:
+        _write_dividend_yield_cache(dy_new)
 
     print()
 
@@ -673,21 +705,21 @@ def save_results(
     os.makedirs(RETURN_DIR, exist_ok=True)
 
     if not fund_perf.empty:
-        fund_perf.to_parquet(FUND_RETURN_PATH, index=False)
+        safe_write_parquet(fund_perf, FUND_RETURN_PATH)
         print(f"✓ 基金涨跌幅: {FUND_RETURN_PATH}")
         print(f"  {len(fund_perf)} 只基金, 最新日期 {fund_perf['date'].max()}")
     else:
         print("⚠ 基金数据为空，跳过")
 
     if not index_perf.empty:
-        index_perf.to_parquet(INDEX_RETURN_PATH, index=False)
+        safe_write_parquet(index_perf, INDEX_RETURN_PATH)
         print(f"✓ 指数涨跌幅: {INDEX_RETURN_PATH}")
         print(f"  {len(index_perf)} 个指数")
     else:
         print("⚠ 指数数据为空，跳过")
 
     if not excess_perf.empty:
-        excess_perf.to_parquet(EXCESS_RETURN_PATH, index=False)
+        safe_write_parquet(excess_perf, EXCESS_RETURN_PATH)
         print(f"✓ 超额收益 (Alpha): {EXCESS_RETURN_PATH}")
         print(f"  {len(excess_perf)} 只基金")
 

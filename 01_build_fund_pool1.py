@@ -8,6 +8,8 @@ import akshare as ak
 from config import (
     DATA_DIR,
     FUND_MASTER_PATH,
+    API_FAILED_PATH,
+    EXCLUDED_PATH,
     MANUAL_EXCLUDE_PATH,
     MANUAL_INCLUDE_PATH,
     INDEX_KEYWORDS,
@@ -129,7 +131,7 @@ def _is_etf_or_link(name):
     has_exclude = any(p in name for p in EXCLUDE_PATTERNS)
     if not has_exclude:
         return False
-    # 例外：虽然命中排除词，但同时包含例外关键词则保留
+    # 例外：包含排除词和例外关键词，保留
     has_exception = any(e in name for e in EXCLUDE_EXCEPTIONS)
     if has_exception:
         return False
@@ -139,8 +141,6 @@ def _is_etf_or_link(name):
 # API请求核心
 
 def _fetch_fund_detail_xq(fund_code, cache):
-    """获取单只基金详情，带缓存 + 重试 + 随机延迟 + jitter 退避"""
-
     # 1. 读取缓存
     if fund_code in cache:
         return cache[fund_code]
@@ -409,6 +409,8 @@ def verify_index_enhancement(candidates):
 
     verified = []
     verified_codes = set()
+    api_failed = []  # 记录API调取失败的基金
+    excluded = []    # 记录所有被筛去的基金及原因
 
     manual_exclude = _load_manual_exclude()
     manual_include = _load_manual_include()
@@ -418,15 +420,14 @@ def verify_index_enhancement(candidates):
     stats = {
         "白名单": 0,
         "黑名单": 0,
+        "名称确认": 0,
         "API失败": 0,
         "非指数": 0,
         "非增强": 0,
         "非权益": 0,
     }
 
-    # ==================================================
     # 第一部分：白名单优先加入
-    # ==================================================
 
     print(f"\n加载白名单: {len(manual_include)}")
 
@@ -435,6 +436,12 @@ def verify_index_enhancement(candidates):
 
         if code in manual_exclude:
             stats["黑名单"] += 1
+            excluded.append({
+                "fund_code": code,
+                "fund_name": item["fund_name"],
+                "exclude_reason": "人工维护黑名单",
+                "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
             continue
 
         if code in verified_codes:
@@ -447,14 +454,12 @@ def verify_index_enhancement(candidates):
             flush=True,
         )
 
-        # 延迟由 _fetch_fund_detail_xq 内部统一控制
-        detail = _fetch_fund_detail_xq(code, cache)
-
+        # 白名单人工确认过，不需要调 API，直接加入
         verified.append(_make_verified_entry(
             code=code,
             name=item["fund_name"],
             index=item["benchmark_index"],
-            detail=detail,
+            detail=None,
             source="manual_include",
             reason="白名单手动加入",
         ))
@@ -487,6 +492,27 @@ def verify_index_enhancement(candidates):
         # 黑名单
         if code in manual_exclude:
             stats["黑名单"] += 1
+            excluded.append({
+                "fund_code": code,
+                "fund_name": name,
+                "exclude_reason": "人工维护黑名单",
+                "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            continue
+
+        # 名称同时命中指数关键词 + 增强关键词 → 直接通过，无需调 API
+        if row.get("hit_reason") == "both" and row.get("coarse_index") != "unknown":
+            index = row["coarse_index"]
+            verified.append(_make_verified_entry(
+                code=code,
+                name=name,
+                index=index,
+                detail=None,
+                source="name_both_confirm",
+                reason=f"名称同时命中{INDEX_NAMES.get(index, index)}与增强关键词",
+            ))
+            verified_codes.add(code)
+            stats["名称确认"] += 1
             continue
 
         detail = _fetch_fund_detail_xq(code, cache)
@@ -510,6 +536,22 @@ def verify_index_enhancement(candidates):
                 verified_codes.add(code)
             else:
                 stats["API失败"] += 1
+                fail_entry = {
+                    "fund_code": code,
+                    "fund_name": name,
+                    "coarse_index": row.get("coarse_index", ""),
+                    "hit_reason": row.get("hit_reason", ""),
+                    "share_class": _extract_share_class(name),
+                    "fail_reason": "API请求失败（已重试{}次）".format(MAX_RETRIES),
+                    "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                api_failed.append(fail_entry)
+                excluded.append({
+                    "fund_code": code,
+                    "fund_name": name,
+                    "exclude_reason": "API请求失败，无法验证",
+                    "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                })
 
             continue
 
@@ -517,6 +559,12 @@ def verify_index_enhancement(candidates):
 
         if any(x in fund_type for x in ["债券", "货币", "可转债"]):
             stats["非权益"] += 1
+            excluded.append({
+                "fund_code": code,
+                "fund_name": name,
+                "exclude_reason": f"非权益类基金（{fund_type}）",
+                "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
             continue
 
         index, index_reason = _identify_index_from_detail(
@@ -527,6 +575,12 @@ def verify_index_enhancement(candidates):
 
         if index is None:
             stats["非指数"] += 1
+            excluded.append({
+                "fund_code": code,
+                "fund_name": name,
+                "exclude_reason": "未匹配到目标指数（沪深300/中证500/中证1000/中证全指）",
+                "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
             continue
 
         is_enh, enhance_reason = _is_index_enhancement(
@@ -537,6 +591,12 @@ def verify_index_enhancement(candidates):
 
         if not is_enh:
             stats["非增强"] += 1
+            excluded.append({
+                "fund_code": code,
+                "fund_name": name,
+                "exclude_reason": "非指数增强策略（被动指数基金或主动管理）",
+                "update_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
             continue
 
         # 组合入选理由
@@ -565,62 +625,102 @@ def verify_index_enhancement(candidates):
 
     print("\n验证完成")
     print(f"最终基金: {len(df)}")
+    print(f"被筛去: {len(excluded)}")
+    print(f"API失败: {len(api_failed)}")
 
     print("\n统计:")
     for k, v in stats.items():
         print(f"  {k}: {v}")
 
-    return df
+    return df, api_failed, excluded
 
 
 # Step 4: 保存基金主表
 
-def save_fund_master(fund_pool):
+def save_fund_master(fund_pool, api_failed=None, excluded=None):
     print("\n" + "=" * 60)
     print("Step 4 / 4 保存基金主表")
     print("=" * 60)
 
     if fund_pool.empty:
         print("⚠ 基金池为空")
-        return
+    else:
+        # 去重
+        fund_pool = fund_pool.drop_duplicates(subset="fund_code", keep="first")
 
-    # 去重
-    fund_pool = fund_pool.drop_duplicates(subset="fund_code", keep="first")
+        # 排序
+        idx_order = {
+            "HS300": 0,
+            "ZZ500": 1,
+            "ZZ1000": 2,
+            "CSI_ALL": 3,
+        }
 
-    # 排序
-    idx_order = {
-        "HS300": 0,
-        "ZZ500": 1,
-        "ZZ1000": 2,
-        "CSI_ALL": 3,
-    }
+        if "benchmark_index" in fund_pool.columns:
+            fund_pool["_sort"] = (
+                fund_pool["benchmark_index"].map(idx_order).fillna(9)
+            )
+            fund_pool = (
+                fund_pool
+                .sort_values(["_sort", "fund_code"])
+                .drop(columns="_sort")
+            )
 
-    if "benchmark_index" in fund_pool.columns:
-        fund_pool["_sort"] = (
-            fund_pool["benchmark_index"].map(idx_order).fillna(9)
-        )
-        fund_pool = (
-            fund_pool
-            .sort_values(["_sort", "fund_code"])
-            .drop(columns="_sort")
-        )
+        fund_pool.to_parquet(FUND_MASTER_PATH, index=False)
 
-    fund_pool.to_parquet(FUND_MASTER_PATH, index=False)
+        # 同时输出 CSV，方便 Excel 直接打开检查
+        csv_path = os.path.join(DATA_DIR, "fund_master.csv")
+        fund_pool.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-    # 同时输出 CSV，方便 Excel 直接打开检查
-    csv_path = os.path.join(DATA_DIR, "fund_master.csv")
-    fund_pool.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        print(f"✓ 基金池保存: {FUND_MASTER_PATH}")
+        print(f"✓ CSV 已导出: {csv_path}")
+        print(f"基金数量: {len(fund_pool)}")
 
-    print(f"✓ 基金池保存: {FUND_MASTER_PATH}")
-    print(f"✓ CSV 已导出: {csv_path}")
-    print(f"基金数量: {len(fund_pool)}")
+        print("\n前20只:")
 
-    print("\n前20只:")
+        show_cols = ["fund_code", "fund_name", "share_class", "benchmark_index", "source", "reason"]
+        show_cols = [c for c in show_cols if c in fund_pool.columns]
 
-    show_cols = ["fund_code", "fund_name", "share_class", "benchmark_index", "source", "reason"]
-    show_cols = [c for c in show_cols if c in fund_pool.columns]
+        print(fund_pool[show_cols].head(20).to_string(index=False))
 
-    print(fund_pool[show_cols].head(20).to_string(index=False))
+    # ── 保存 API 调取失败的基金 ──
+    if api_failed is not None and len(api_failed) > 0:
+        df_failed = pd.DataFrame(api_failed)
+        df_failed = df_failed.drop_duplicates(subset="fund_code", keep="first")
+        df_failed = df_failed.sort_values("fund_code")
+
+        df_failed.to_parquet(API_FAILED_PATH, index=False)
+
+        csv_failed_path = os.path.join(DATA_DIR, "api_failed.csv")
+        df_failed.to_csv(csv_failed_path, index=False, encoding="utf-8-sig")
+
+        print(f"\n✓ API失败基金保存: {API_FAILED_PATH}")
+        print(f"✓ CSV 已导出: {csv_failed_path}")
+        print(f"API失败基金数量: {len(df_failed)}")
+    elif api_failed is not None:
+        print(f"\n✓ 无API失败基金")
+
+    # ── 保存被筛去的基金 ──
+    if excluded is not None and len(excluded) > 0:
+        df_excluded = pd.DataFrame(excluded)
+        df_excluded = df_excluded.drop_duplicates(subset="fund_code", keep="first")
+        df_excluded = df_excluded.sort_values("fund_code")
+
+        df_excluded.to_parquet(EXCLUDED_PATH, index=False)
+
+        csv_excluded_path = os.path.join(DATA_DIR, "excluded_funds.csv")
+        df_excluded.to_csv(csv_excluded_path, index=False, encoding="utf-8-sig")
+
+        print(f"\n✓ 被筛去基金保存: {EXCLUDED_PATH}")
+        print(f"✓ CSV 已导出: {csv_excluded_path}")
+        print(f"被筛去基金数量: {len(df_excluded)}")
+
+        # 按原因分组统计
+        print("\n  筛去原因分布:")
+        for reason, count in df_excluded["exclude_reason"].value_counts().items():
+            print(f"    {reason}: {count}")
+    elif excluded is not None:
+        print(f"\n✓ 无被筛去基金")
 
 
 # 主程序
@@ -644,14 +744,14 @@ def main():
         return
 
     # 3. 验证
-    fund_pool = verify_index_enhancement(candidates)
+    fund_pool, api_failed, excluded = verify_index_enhancement(candidates)
 
-    if fund_pool.empty:
-        print("⚠ 最终基金池为空")
+    if fund_pool.empty and len(api_failed) == 0:
+        print("⚠ 最终基金池为空且无API失败记录")
         return
 
     # 4. 保存
-    save_fund_master(fund_pool)
+    save_fund_master(fund_pool, api_failed, excluded)
 
     print("\n" + "=" * 60)
     print("基金池构建完成 ✓")

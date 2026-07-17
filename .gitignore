@@ -33,6 +33,6 @@ data/log/
 data/*.parquet
 data/*.csv
 !data/manual_include.csv
-data/manual_exclude.csv
+!data/manual_exclude.csv
 output/
 test.py
