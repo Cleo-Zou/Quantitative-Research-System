@@ -1,205 +1,327 @@
 
-# 指数增强基金量化研究系统
-
-> **Quantitative Research System for Enhanced Index Funds**
+# Quantitative Research System for Enhanced Index Funds
 
 [![Daily Update](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml/badge.svg)](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml)
 
-一套完整的指数增强基金量化研究系统，覆盖基金池构建、净值采集、收益计算、五核心风险指标评估、研究解读自动生成与可视化展示的全流程。基于 **Rule-based Research Interpretation Engine**，自动生成基金画像（Profile）、研究标签（Tags）和五段研究摘要（Research Summary）。
-
-A complete quantitative research system for enhanced index funds — covering fund pool construction, NAV collection, return/risk calculation, automated research interpretation, and visualization. Powered by a **Rule-based Research Interpretation Engine**.
+A complete quantitative research system for enhanced index funds — covering fund pool construction, NAV collection, return & risk calculation, automated research interpretation, and visualization. Powered by a **Rule-based Research Interpretation Engine** that generates fund Profiles, Research Tags, and five-part Research Summaries without black-box models.
 
 ---
 
-## 研究范围 / Research Scope
+## Research Scope
 
-| 基准指数 Benchmark | 增强基金数量 Count | 代码 Codes |
-|---|---|---|
-| 沪深300 (CSI 300) | ~190 | HS300 |
-| 中证500 (CSI 500) | ~310 | ZZ500 |
-| 中证1000 (CSI 1000) | ~90 | ZZ1000 |
-| 中证全指 (CSI All-Share) | ~25 | CSI_ALL |
+| Benchmark | Fund Count | Code |
+|-----------|-----------|------|
+| CSI 300 (HS300) | ~190 | HS300 |
+| CSI 500 (ZZ500) | ~310 | ZZ500 |
+| CSI 1000 (ZZ1000) | ~90 | ZZ1000 |
+| CSI All-Share (CSI_ALL) | ~25 | CSI_ALL |
+
+## Five Core Metrics
+
+| Metric | Formula | Higher Better? |
+|--------|---------|:---:|
+| Annual Return | $(NAV_{end}/NAV_{start})^{252/N}-1$ | ↑ |
+| Annual Volatility | $\sigma_{daily} \times \sqrt{252}$ | ↓ |
+| Sharpe Ratio | $(R_{annual}-R_f)/\sigma_{annual}$ | ↑ |
+| Max Drawdown | $\min(NAV_t/Peak_t - 1)$ | ↓ |
+| Calmar Ratio | $R_{annual}/|MDD|$ | ↑ |
+
+Plus 3-period Alpha: 1-month, 6-month, 1-year.
+
+## Architecture
+
+```
+                          AKShare / EastMoney
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+  01 Fund Pool          02 NAV Update          03 Return & Risk
+  fund_master.parquet   data/nav/*.parquet     excess_return.parquet
+        │                       │                       │
+        └───────────────────────┼───────────────────────┘
+                                │
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+              04 Dashboard   05 Excel   06 Research
+              index.html   analysis    research.html
+                           .xlsx
+                    │           │           │
+                    └───────────┼───────────┘
+                                ▼
+                           output/
+                                ▼
+                         GitHub Pages
+```
+
+## Research Interpretation Engine
+
+### Six Profiles
+
+| Profile | Description |
+|---------|-------------|
+| Stable Enhanced | Alpha > 0, good Sharpe/Calmar, controlled drawdown |
+| Risk-Return Optimized | High Sharpe + Calmar, low volatility, moderate Alpha |
+| High-Elastic Enhanced | High return/Alpha but elevated volatility/drawdown |
+| Standard Enhanced | Middle of the pack across all metrics |
+| Index-Replicating | Alpha ≤ 0 across all periods, behaves like passive tracking |
+| Observation Sample | Listed < 1 year, insufficient data for full evaluation |
+
+### Research Tags
+
+`[Consistent Alpha]` `[Outstanding Alpha]` `[Stable Alpha]` `[Trend Improving]` `[Trend Declining]` `[High Return]` `[Low Volatility]` `[High Sharpe]` `[High Calmar]` `[Low Drawdown]`
+
+### Five-Step Summary
+
+1. **Return** — Annual Return + Alpha
+2. **Risk** — Volatility + Max Drawdown
+3. **Risk-Adjusted** — Sharpe + Calmar
+4. **Consistency** — Alpha trend across 3 periods
+5. **Summary** — Profile conclusion
+
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+
+python 01_build_fund_pool1.py       # 1/6 Build fund pool
+python 02_update_nav.py             # 2/6 Update NAV data
+python 03_calculate_return.py       # 3/6 Calculate returns & risk metrics
+python 04_generate_html.py          # 4/6 Performance dashboard
+python 05_export_analysis.py        # 5/6 Research Excel
+python 06_generate_research_html.py # 6/6 Research HTML dashboard
+```
+
+Or one-click on Windows: `run_daily.bat`
+
+## Automated Deployment
+
+**GitHub Actions** triggers every weekday at 18:00 CST (UTC 10:00), runs all 6 steps, and deploys results to **GitHub Pages**.
+
+### Outputs
+
+| Output | Path | Description |
+|--------|------|-------------|
+| Dashboard | `output/index.html` | Interactive table + ECharts charts |
+| Research Board | `output/research.html` | 5 core metrics + Profile + Tags |
+| Research Analysis | `output/research_analysis.xlsx` | 4 benchmark sheets + summary |
+
+## Project Structure
+
+```
+Index_Enhancement_Monitor/
+├── 01_build_fund_pool1.py
+├── 02_update_nav.py
+├── 03_calculate_return.py
+├── 04_generate_html.py
+├── 05_export_analysis.py
+├── 06_generate_research_html.py
+├── config.py
+├── utils.py
+├── analysis/
+│   ├── ranking.py
+│   ├── research_profile.py
+│   ├── research_tags.py
+│   ├── research_summary.py
+│   └── excel.py
+├── data/
+│   ├── nav/
+│   ├── return/
+│   └── index/
+├── output/
+├── docs/
+│   ├── evaluation-methodology.md
+│   └── project_report.md
+├── .github/workflows/
+│   └── daily-update.yml
+├── run_daily.bat
+├── run_scheduled.bat
+├── requirements.txt
+└── README.md
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Data Source | AKShare, CSI Index |
+| Engine | Python 3.12, NumPy, Pandas |
+| Research | Rule-based Engine (custom) |
+| Visualization | xlsxwriter, ECharts, Vanilla JS |
+| CI/CD | GitHub Actions |
+| Deploy | GitHub Pages (free hosting) |
+
+## Design Principles
+
+1. **Like-for-Like**: All evaluations within same benchmark group only
+2. **Alpha First**: Alpha measures active management capability — the core of evaluation
+3. **Consistency over Burst**: Steady Alpha is more valuable than one-time outperformance
+4. **Risk-Adjusted**: Alpha must be built on reasonable risk levels
+5. **Explainability**: Every conclusion traceable to explicit data and deterministic rules
+
+## License
+
+MIT
 
 ---
 
-## 五核心评价指标 / Five Core Metrics
+# 指数增强基金量化研究系统
 
-| 指标 Metric | 公式 Formula | 方向 |
-|---|---|---|
-| **年化收益率** Annual Return | $(NAV_{end}/NAV_{start})^{252/N}-1$ | ↑ |
-| **年化波动率** Annual Volatility | $\sigma_{daily} \times \sqrt{252}$ | ↓ |
-| **夏普比率** Sharpe Ratio | $(R_{annual}-R_f)/\sigma_{annual}$ | ↑ |
-| **最大回撤** Max Drawdown | $\min(NAV_t/Peak_t - 1)$ | ↓ |
-| **卡玛比率** Calmar Ratio | $R_{annual}/|MDD|$ | ↑ |
+[![每日更新](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml/badge.svg)](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml)
 
-加上 3 个周期的 Alpha（近一月 / 近六月 / 近一年）。
-
-Plus 3-period Alpha (1M / 6M / 1Y).
+一套完整的指数增强基金量化研究系统，覆盖基金池构建、净值采集、收益计算、风险指标评估、研究解读自动生成与可视化展示的全流程。核心为基于 **确定性规则的自动化研究解读引擎（Rule-based Research Interpretation Engine）**，不依赖大模型，自动生成基金画像、研究标签和五段研究摘要。
 
 ---
 
-## 系统架构 / Architecture
+## 研究范围
+
+| 基准指数 | 增强基金数量 | 代码 |
+|----------|-------------|------|
+| 沪深300 | ~190 只 | HS300 |
+| 中证500 | ~310 只 | ZZ500 |
+| 中证1000 | ~90 只 | ZZ1000 |
+| 中证全指 | ~25 只 | CSI_ALL |
+
+## 五核心评价指标
+
+| 指标 | 公式 | 越高越好？ |
+|------|------|:---:|
+| 年化收益率 | $(NAV_{end}/NAV_{start})^{252/N}-1$ | ↑ |
+| 年化波动率 | $\sigma_{daily} \times \sqrt{252}$ | ↓ |
+| 夏普比率 | $(R_{annual}-R_f)/\sigma_{annual}$ | ↑ |
+| 最大回撤 | $\min(NAV_t/Peak_t - 1)$ | ↓ |
+| 卡玛比率 | $R_{annual}/|MDD|$ | ↑ |
+
+加上三个周期的超额收益（近一月 / 近六月 / 近一年）。
+
+## 系统架构
 
 ```
                           AKShare / 天天基金
                                 │
         ┌───────────────────────┼───────────────────────┐
         ▼                       ▼                       ▼
-  01_build_fund_pool    02_update_nav         03_calculate_return
-  基金池构建             净值采集               收益 & 风险指标
-  fund_master.parquet   data/nav/*.parquet    excess_return.parquet
+  01 基金池构建         02 净值采集              03 收益与风险计算
+  fund_master.parquet  data/nav/*.parquet      excess_return.parquet
         │                       │                       │
         └───────────────────────┼───────────────────────┘
                                 │
                     ┌───────────┼───────────┐
                     ▼           ▼           ▼
-              04 绩效看板   05 Excel   06 研究看板
-              index.html  analysis   research.html
-                          .xlsx
+              04 绩效看板   05 研究Excel  06 研究看板
+              index.html   analysis     research.html
+                           .xlsx
                     │           │           │
                     └───────────┼───────────┘
                                 ▼
                            output/
-                                │
                                 ▼
                          GitHub Pages
 ```
 
----
+## 研究解读引擎
 
-## 研究解读引擎 / Research Interpretation Engine
+### 六类基金画像
 
-### Six Profiles（六类基金画像）
+| 画像 | 说明 |
+|------|------|
+| 稳健增强型 | Alpha 正向，Sharpe/Calmar 居前，回撤可控 |
+| 风险收益优化型 | Sharpe+Calmar 双高 + 低波动，Alpha 可能不突出 |
+| 高弹性增强型 | 收益/Alpha 突出，但波动或回撤显著偏高 |
+| 普通增强型 | 各项指标处于同类中游 |
+| 指数复制型 | 各周期 Alpha 均未跑赢基准，增强特征不明显 |
+| 观察样本 | 成立不足一年，数据不足以参与完整评价 |
 
-| Profile | 英文 English | 特征 Characteristics |
-|---------|-------------|---------------------|
-| 稳健增强型 | Stable Enhanced | Alpha > 0, Sharpe/Calmar top, low drawdown |
-| 风险收益优化型 | Risk-Return Optimized | High Sharpe + Calmar, low volatility, moderate Alpha |
-| 高弹性增强型 | High-Elastic Enhanced | High return/Alpha but high vol/drawdown |
-| 普通增强型 | Standard Enhanced | Middle of the pack |
-| 指数复制型 | Index-Replicating | Alpha ≤ 0 across all periods |
-| 观察样本 | Observation Sample | Listed < 1 year, insufficient data |
-
-### Research Tags（研究标签）
+### 研究标签
 
 `[持续跑赢]` `[超额突出]` `[Alpha稳定]` `[短期改善]` `[近期回落]` `[高收益]` `[低波动]` `[高Sharpe]` `[高Calmar]` `[低回撤]`
 
-### Five-Step Summary（五段研究摘要）
+### 五段研究摘要
 
-1. **收益能力 Return** — Annual Return + Alpha
-2. **风险控制 Risk** — Volatility + Max Drawdown
-3. **风险调整收益 Risk-Adjusted** — Sharpe + Calmar
-4. **超额持续性 Consistency** — Alpha trend across 3 periods
-5. **综合画像 Summary** — Profile conclusion
+1. **收益能力** — 年化收益 + 超额 Alpha
+2. **风险控制** — 波动率 + 最大回撤
+3. **风险调整收益** — Sharpe + Calmar
+4. **超额持续性** — Alpha 三周期趋势
+5. **综合画像** — Profile 结论
 
----
-
-## 快速开始 / Quick Start
-
-### 安装 / Install
+## 快速开始
 
 ```bash
 pip install -r requirements.txt
-```
 
-### 运行完整流水线 / Run Full Pipeline
-
-```bash
-python 01_build_fund_pool1.py      # 1/6 构建基金池
-python 02_update_nav.py            # 2/6 更新净值
-python 03_calculate_return.py      # 3/6 计算收益与风险指标
-python 04_generate_html.py         # 4/6 生成绩效看板
-python 05_export_analysis.py       # 5/6 生成研究 Excel
+python 01_build_fund_pool1.py       # 1/6 构建基金池
+python 02_update_nav.py             # 2/6 更新净值
+python 03_calculate_return.py       # 3/6 计算收益与风险指标
+python 04_generate_html.py          # 4/6 生成绩效看板
+python 05_export_analysis.py        # 5/6 生成研究 Excel
 python 06_generate_research_html.py # 6/6 生成研究看板
 ```
 
-### 一键运行 / One-Click
+Windows 一键运行：双击 `run_daily.bat`
 
-```bash
-# Windows
-run_daily.bat
+## 自动化部署
 
-# 自动静默运行（适合定时任务）
-run_scheduled.bat
-```
+**GitHub Actions** 每个工作日 18:00（北京时间）自动触发，跑完全部六步后部署到 **GitHub Pages**。
 
----
+### 输出产物
 
-## 自动化部署 / Automated Deployment
-
-**GitHub Actions** 每个工作日 18:00（北京时间）自动触发，跑完全部六步后将结果部署到 **GitHub Pages**。
-
-Scheduled workflow runs every weekday at 18:00 CST (UTC 10:00), executes all 6 steps, and deploys to GitHub Pages.
-
-### 输出产物 / Outputs
-
-| 产物 Output | 路径 Path | 说明 Description |
-|------------|----------|-----------------|
+| 产物 | 路径 | 说明 |
+|------|------|------|
 | 绩效看板 | `output/index.html` | 交互式表格 + ECharts 走势图 |
 | 研究看板 | `output/research.html` | 五核心指标 + Profile + Tags |
 | 研究分析 | `output/research_analysis.xlsx` | 四个 Benchmark Sheet + 汇总 |
 
----
-
-## 项目结构 / Project Structure
+## 项目结构
 
 ```
 Index_Enhancement_Monitor/
-├── 01_build_fund_pool1.py      # 基金池构建 Fund pool
-├── 02_update_nav.py            # 净值采集 NAV collection
-├── 03_calculate_return.py      # 收益 & 风险计算 Returns & risk
-├── 04_generate_html.py         # 绩效 HTML Performance dashboard
-├── 05_export_analysis.py       # 研究 Excel Research Excel
-├── 06_generate_research_html.py # 研究 HTML Research dashboard
-├── config.py                   # 全局配置 Global config
-├── utils.py                    # 公共工具 Utilities
-├── analysis/                   # 研究解读引擎 Research engine
-│   ├── ranking.py              #   同类排名 Ranking
-│   ├── research_profile.py     #   画像判定 Profile
-│   ├── research_tags.py        #   标签生成 Tags
-│   ├── research_summary.py     #   摘要拼装 Summary
-│   └── excel.py                #   Excel 导出 Export
-├── data/                       # 数据缓存 Data cache
-│   ├── nav/                    #   净值文件 NAV files
-│   ├── return/                 #   收益数据 Return data
-│   ├── index/                  #   指数行情 Index prices
-│   └── fund_master.parquet     #   基金主表 Fund master
-├── output/                     # 输出产物 Outputs
-├── docs/                       # 文档 Documentation
-│   ├── evaluation-methodology.md  # 评价方法论
-│   └── project_report.md          # 项目报告
-├── .github/workflows/          # CI/CD
-│   └── daily-update.yml        #   每日自动更新
-├── run_daily.bat               # Windows 一键运行
-├── run_scheduled.bat           # Windows 静默运行
-├── requirements.txt            # Python 依赖
-└── README.md                   # 本文件 This file
+├── 01_build_fund_pool1.py       # 基金池构建
+├── 02_update_nav.py             # 净值采集
+├── 03_calculate_return.py       # 收益与风险计算
+├── 04_generate_html.py          # 绩效 HTML
+├── 05_export_analysis.py        # 研究 Excel
+├── 06_generate_research_html.py # 研究 HTML
+├── config.py                    # 全局配置
+├── utils.py                     # 公共工具
+├── analysis/                    # 研究解读引擎
+│   ├── ranking.py               #   同类排名
+│   ├── research_profile.py      #   画像判定
+│   ├── research_tags.py         #   标签生成
+│   ├── research_summary.py      #   摘要拼装
+│   └── excel.py                 #   Excel 导出
+├── data/                        # 数据缓存
+│   ├── nav/                     #   净值文件
+│   ├── return/                  #   收益数据
+│   └── index/                   #   指数行情
+├── output/                      # 输出产物
+├── docs/                        # 文档
+│   ├── evaluation-methodology.md
+│   └── project_report.md
+├── .github/workflows/           # CI/CD
+│   └── daily-update.yml
+├── run_daily.bat
+├── run_scheduled.bat
+├── requirements.txt
+└── README.md
 ```
 
----
+## 技术栈
 
-## 技术栈 / Tech Stack
+| 层级 | 技术 |
+|------|------|
+| 数据源 | AKShare, 中证指数公司 |
+| 计算引擎 | Python 3.12, NumPy, Pandas |
+| 研究引擎 | Rule-based Engine（自研） |
+| 可视化 | xlsxwriter, ECharts, Vanilla JS |
+| CI/CD | GitHub Actions |
+| 部署 | GitHub Pages（免费托管） |
 
-| 层级 Layer | 技术 Technology |
-|-----------|---------------|
-| 数据源 Data | AKShare, 中证指数公司 CSI |
-| 计算 Engine | Python 3.12, NumPy, Pandas |
-| 研究引擎 Research | Rule-based Engine (自研) |
-| 可视化 Viz | xlsxwriter (Excel), ECharts + Vanilla JS (HTML) |
-| 自动化 CI/CD | GitHub Actions |
-| 部署 Deploy | GitHub Pages |
+## 设计原则
 
----
-
-## 设计原则 / Design Principles
-
-1. **同类比较 Like-for-Like**: 所有评价仅在相同 Benchmark 基金之间完成
-2. **超额优先 Alpha First**: Alpha 代表主动管理能力，是评价核心
-3. **持续性优先 Consistency over Burst**: 稳定超额比一次性爆发更有价值
-4. **风险匹配 Risk-Adjusted**: Alpha 必须建立在合理风险水平之上
-5. **可解释性 Explainability**: 每条结论可追溯至明确数据与确定性规则
-
----
+1. **同类比较**：所有评价仅在相同 Benchmark 基金之间完成
+2. **超额优先**：Alpha 代表主动管理能力，是评价核心维度
+3. **持续性优先**：持续创造 Alpha 比一次爆发更有价值
+4. **风险收益匹配**：Alpha 必须建立在合理风险水平之上
+5. **可解释性**：每条结论可追溯至明确数据与确定性规则
 
 ## License
 
