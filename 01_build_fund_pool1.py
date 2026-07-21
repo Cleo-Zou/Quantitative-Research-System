@@ -467,9 +467,9 @@ def verify_index_enhancement(candidates):
         verified_codes.add(code)
         stats["白名单"] += 1
 
-    # ==================================================
+
     # 第二部分：自动验证
-    # ==================================================
+
 
     print("\n开始自动验证...")
 
@@ -517,10 +517,9 @@ def verify_index_enhancement(candidates):
 
         detail = _fetch_fund_detail_xq(code, cache)
 
-        # ==================================================
+       
         # API失败降级：名称同时命中指数+增强 → 纳为候选
-        # ==================================================
-
+    
         if detail is None:
             index = _match_index(name)
 

@@ -31,11 +31,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [4/4] 生成HTML页面... >> "%LOG_FILE%"
+echo [4/6] 生成HTML页面... >> "%LOG_FILE%"
 python 04_generate_html.py >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
     echo [FAIL] 04 失败 >> "%LOG_FILE%"
     exit /b 1
+)
+
+echo [5/6] 研究分析Excel... >> "%LOG_FILE%"
+python 05_export_analysis.py >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+    echo [WARN] 05 失败 >> "%LOG_FILE%"
+)
+
+echo [6/6] 研究HTML看板... >> "%LOG_FILE%"
+python 06_generate_research_html.py >> "%LOG_FILE%" 2>&1
+if errorlevel 1 (
+    echo [WARN] 06 失败 >> "%LOG_FILE%"
 )
 
 echo [OK] 完成 %date% %time% >> "%LOG_FILE%"

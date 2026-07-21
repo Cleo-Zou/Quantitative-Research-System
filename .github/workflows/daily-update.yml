@@ -54,8 +54,16 @@ jobs:
       - name: [3/4] 计算涨跌幅与超额
         run: python 03_calculate_return.py
 
-      - name: [4/4] 生成 HTML
+      - name: [4/6] 生成绩效 HTML
         run: python 04_generate_html.py
+
+      - name: [5/6] 生成研究分析 Excel
+        run: python 05_export_analysis.py
+        continue-on-error: true
+
+      - name: [6/6] 生成研究 HTML 看板
+        run: python 06_generate_research_html.py
+        continue-on-error: true
 
       - name: 验证数据日期
         run: |

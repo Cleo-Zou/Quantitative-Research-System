@@ -1,11 +1,3 @@
-"""
-阶段 4: 生成指数增强基金排名 HTML 页面
-
-读取 03_calculate_return.py 输出的 excess_return.parquet，
-展示基金代码、基金简称、指数名称、日/月/年涨跌幅、日/月/年超额。
-点击基金行 → 弹窗显示近 90 个交易日基金 vs 基准累计收益折线图。
-"""
-
 import json
 import os
 import re

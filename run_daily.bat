@@ -30,7 +30,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [4/4] 生成HTML页面...
+echo [4/6] 生成绩效HTML页面...
 python 04_generate_html.py
 if errorlevel 1 (
     echo [FAIL] 04 失败
@@ -38,7 +38,24 @@ if errorlevel 1 (
 )
 
 echo.
+echo [5/6] 生成研究分析Excel...
+python 05_export_analysis.py
+if errorlevel 1 (
+    echo [WARN] 05 失败（非致命，继续）
+)
+
+echo.
+echo [6/6] 生成研究HTML看板...
+python 06_generate_research_html.py
+if errorlevel 1 (
+    echo [WARN] 06 失败（非致命，继续）
+)
+
+echo.
 echo ============================================================
-echo  完成！打开 output\index.html 查看最新排名
+echo  完成！
+echo     output\index.html          绩效看板
+echo     output\research.html       研究看板
+echo     output\research_analysis.xlsx  研究分析
 echo ============================================================
 pause

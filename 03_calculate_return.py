@@ -1,31 +1,3 @@
-"""
-阶段 3: 按 App 展示口径计算基金涨跌幅 & 指数增强超额
-
-读取 02_update_nav.py 输出的基金净值（单位净值 + 复权净值）和 AKShare 指数行情，
-计算区间涨跌幅，再做基金 - 指数超额，供 04_generate_html.py 生成展示页面。
-
-净值选择:
-    短期（日 / 周）   → unit_nav（单位净值），对齐天天基金 / 支付宝 App 顶部
-    中长期（月及以上）→ adj_nav（复权净值），剔除分红拆分干扰
-
-计算口径:
-    日涨跌    = 今日单位净值 / 昨日单位净值 - 1
-    近一周    = 今日单位净值 / 7日前最近交易日单位净值 - 1
-    近一月    = 今日复权净值 / 1个自然月前最近交易日复权净值 - 1
-    近三月    = 今日复权净值 / 3个自然月前最近交易日复权净值 - 1
-    近六月    = 今日复权净值 / 6个自然月前最近交易日复权净值 - 1
-    今年以来   = 今日复权净值 / 去年最后交易日复权净值 - 1
-    近一年    = 今日复权净值 / 1个自然年前最近交易日复权净值 - 1
-    近三年    = 今日复权净值 / 3个自然年前最近交易日复权净值 - 1
-    近五年    = 今日复权净值 / 5个自然年前最近交易日复权净值 - 1
-    成立以来   = 今日复权净值 / 最早交易日复权净值 - 1
-
-输出文件（最新日期快照，每只基金 / 每个指数一行）:
-    data/return/fund_performance.parquet
-    data/return/index_performance.parquet
-    data/return/excess_performance.parquet
-"""
-
 import calendar
 import os
 import time
@@ -110,21 +82,64 @@ def load_fund_master() -> pd.DataFrame:
 
 # 2. 区间涨跌幅计算（App 口径）
 
+def _calculate_max_drawdown(df: pd.DataFrame) -> float | None:
+    """从复权净值序列计算历史最大回撤（负值，如 -0.15 表示 15% 回撤）"""
+    adj = df["adj_nav"].dropna()
+    if len(adj) < 2:
+        return None
+    peak = adj.expanding().max()
+    drawdown = (adj / peak - 1).min()
+    return float(drawdown)
+
+
+def _calculate_risk_metrics(df: pd.DataFrame, max_drawdown: float | None) -> dict:
+    """
+    计算年化收益率、年化波动率、夏普比率、卡玛比率。
+
+    基于全量复权净值的日收益率序列。
+    返回 dict 含 annual_return, annual_volatility, sharpe_ratio, calmar_ratio。
+    """
+    result = {
+        "annual_return": None,
+        "annual_volatility": None,
+        "sharpe_ratio": None,
+        "calmar_ratio": None,
+    }
+
+    adj = df["adj_nav"].dropna()
+    if len(adj) < 20:
+        return result
+
+    daily_returns = adj.pct_change().dropna()
+    N = len(daily_returns)
+    if N < 10:
+        return result
+
+    # 年化收益率（几何年化）
+    cumulative = adj.iloc[-1] / adj.iloc[0] - 1
+    annual_return = (1 + cumulative) ** (252 / N) - 1
+    result["annual_return"] = float(annual_return)
+
+    # 年化波动率
+    annual_vol = float(daily_returns.std()) * np.sqrt(252)
+    result["annual_volatility"] = float(annual_vol)
+
+    # 夏普比率
+    from config import RISK_FREE_RATE
+    if annual_vol > 0:
+        result["sharpe_ratio"] = float((annual_return - RISK_FREE_RATE) / annual_vol)
+
+    # 卡玛比率
+    if max_drawdown is not None and max_drawdown < 0:
+        result["calmar_ratio"] = float(annual_return / abs(max_drawdown))
+
+    return result
+
+
 def _calculate_performance(
     nav_df: pd.DataFrame,
 ) -> dict:
-    """
-    对单条净值时间序列，按 App 展示口径计算 10 个区间涨跌幅。
-
-    短期（日 / 周）使用 unit_nav，
-    中长期（月及以上）使用 adj_nav。
-
-    返回:
-        dict 含 date, daily_change, week_change, month_1_change,
-        month_3_change, month_6_change, ytd_change,
-        year_1_change, year_3_change, year_5_change,
-        since_launch_change
-    """
+ 
     df = nav_df.sort_values("date").reset_index(drop=True)
     df["date"] = pd.to_datetime(df["date"]).dt.date
     # 去重：同一天保留最后一条（避免重复日期导致 dict 覆盖异常）
@@ -222,6 +237,13 @@ def _calculate_performance(
             "since_launch_change",
         ]:
             result[key] = None
+
+    # ── 最大回撤（基于全量复权净值） ──
+    result["max_drawdown"] = _calculate_max_drawdown(df)
+
+    # ── 风险调整指标（年化收益 / 波动率 / Sharpe / Calmar） ──
+    risk = _calculate_risk_metrics(df, result["max_drawdown"])
+    result.update(risk)
 
     return result
 
@@ -659,7 +681,8 @@ def calculate_excess_performance(
         "benchmark_index", "benchmark_name", "date",
         "dividend_yield",
         *_PERF_FIELDS,
-        "since_launch_change",
+        "since_launch_change", "max_drawdown",
+        "annual_return", "annual_volatility", "sharpe_ratio", "calmar_ratio",
         *_EXCESS_FIELDS,
         *_ALPHA_FIELDS,
     ]

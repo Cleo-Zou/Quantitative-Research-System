@@ -37,12 +37,7 @@ def load_fund_master() -> list[str]:
 
 
 def fetch_fund_nav(fund_code: str) -> pd.DataFrame | None:
-    """获取单只基金历史净值（合并单位净值 + 累计净值）。
-
-    调用两次 fund_open_fund_info_em：
-    1. "单位净值走势" → unit_nav
-    2. "累计净值走势" → adj_nav（累计净值作为复权净值的代理）
-    """
+   
     for attempt in range(1 + MAX_RETRIES):
         try:
             # ── 第一次: 单位净值 ──
