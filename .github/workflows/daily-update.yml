@@ -43,25 +43,25 @@ jobs:
           restore-keys: |
             fund-data-v2-
 
-      - name: [1/4] 更新基金池
+      - name: 01 更新基金池
         run: python 01_build_fund_pool1.py
         continue-on-error: true
 
-      - name: [2/4] 获取最新净值
+      - name: 02 获取最新净值
         run: python 02_update_nav.py
         continue-on-error: true
 
-      - name: [3/4] 计算涨跌幅与超额
+      - name: 03 计算涨跌幅与超额
         run: python 03_calculate_return.py
 
-      - name: [4/6] 生成绩效 HTML
+      - name: 04 生成绩效 HTML
         run: python 04_generate_html.py
 
-      - name: [5/6] 生成研究分析 Excel
+      - name: 05 生成研究分析 Excel
         run: python 05_export_analysis.py
         continue-on-error: true
 
-      - name: [6/6] 生成研究 HTML 看板
+      - name: 06 生成研究 HTML 看板
         run: python 06_generate_research_html.py
         continue-on-error: true
 
