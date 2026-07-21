@@ -2,18 +2,15 @@ name: 每日更新指数增强基金排名
 
 on:
   schedule:
-    # 北京时间每个交易日 16:30 (UTC 08:30)
-    - cron: "30 8 * * 1-5"
-  # 也允许手动触发
+    # 北京时间每个交易日 18:00 (UTC 10:00)，确保收盘数据已出
+    - cron: "0 10 * * 1-5"
   workflow_dispatch:
 
-# GitHub Pages 部署权限
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# 确保只有一个实例在运行
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -42,21 +39,45 @@ jobs:
         id: cache-data
         with:
           path: data/
-          key: fund-data-${{ hashFiles('data/fund_detail_cache.parquet') }}-${{ github.run_id }}
+          key: fund-data-v2-${{ github.run_number }}
           restore-keys: |
-            fund-data-
+            fund-data-v2-
 
       - name: [1/4] 更新基金池
         run: python 01_build_fund_pool1.py
+        continue-on-error: true
 
       - name: [2/4] 获取最新净值
         run: python 02_update_nav.py
+        continue-on-error: true
 
       - name: [3/4] 计算涨跌幅与超额
         run: python 03_calculate_return.py
 
       - name: [4/4] 生成 HTML
         run: python 04_generate_html.py
+
+      - name: 验证数据日期
+        run: |
+          python -c "
+          import pandas as pd, os, sys
+          from datetime import datetime, timedelta
+          path = 'data/return/excess_return.parquet'
+          if not os.path.exists(path):
+              print('[WARN] excess_return.parquet 不存在')
+              sys.exit(0)
+          df = pd.read_parquet(path)
+          latest = pd.to_datetime(df['date'].max()).date()
+          today = datetime.now().date()
+          print(f'数据日期: {latest}')
+          print(f'当前日期: {today}')
+          # 允许 1 个交易日的延迟（周末/节假日）
+          diff = (today - latest).days
+          if diff > 3:
+              print(f'[WARN] 数据延迟 {diff} 天，可能缺少最新交易日数据')
+          else:
+              print('[OK] 数据为近期数据')
+          "
 
       - name: 配置 GitHub Pages
         uses: actions/configure-pages@v5
