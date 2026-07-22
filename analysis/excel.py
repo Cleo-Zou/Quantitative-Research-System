@@ -6,6 +6,7 @@ Sheet 结构（每 Benchmark 一个 + 汇总概览）:
 """
 
 import os
+import time
 import pandas as pd
 from config import INDEX_NAMES
 
@@ -58,7 +59,16 @@ def export_excel(df: pd.DataFrame, output_path: str):
 
     benchmark_order = ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]
 
-    with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
+    try:
+        writer = pd.ExcelWriter(output_path, engine="xlsxwriter")
+    except PermissionError:
+        base, ext = os.path.splitext(output_path)
+        fallback = f"{base}_{time.strftime('%Y%m%d_%H%M%S')}{ext}"
+        print(f"[WARN] {os.path.basename(output_path)} 被占用，改为 {os.path.basename(fallback)}")
+        writer = pd.ExcelWriter(fallback, engine="xlsxwriter")
+        output_path = fallback
+
+    with writer:
         workbook = writer.book
 
         # ── 格式 ──

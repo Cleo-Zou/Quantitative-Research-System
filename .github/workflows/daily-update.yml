@@ -34,15 +34,6 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: 恢复数据缓存
-        uses: actions/cache@v4
-        id: cache-data
-        with:
-          path: data/
-          key: fund-data-v2-${{ github.run_number }}
-          restore-keys: |
-            fund-data-v2-
-
       - name: 01 更新基金池
         run: python 01_build_fund_pool1.py
         continue-on-error: true

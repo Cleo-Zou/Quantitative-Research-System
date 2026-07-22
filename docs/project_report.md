@@ -202,19 +202,11 @@ $$Calmar = \frac{R_{annual}}{|MDD|}$$
 
 ---
 
-## 第四章：五核心指标体系
+## 第四章：同类比较与评价体系
 
-### 4.1 指标维度
+> 五核心指标的具体计算公式见第三章。本章聚焦如何在同一 Benchmark 内横向比较基金。
 
-| 维度 | 指标 | 公式 | 方向 |
-|------|------|------|------|
-| 收益能力 | Annual Return | $$(NAV_{end}/NAV_{start})^{252/N}-1$$ | ↑ |
-| 风险水平 | Annual Volatility | $$\sigma_{daily} \times \sqrt{252}$$ | ↓ |
-| 风险调整收益 | Sharpe Ratio | $$(R_{annual}-R_f)/\sigma_{annual}$$ | ↑ |
-| 下行风险 | Max Drawdown | $$\min(NAV_t/Peak_t - 1)$$ | ↓ |
-| 收益回撤比 | Calmar Ratio | $$R_{annual}/|MDD|$$ | ↑ |
-
-### 4.2 同类排名方法
+### 4.1 同类排名方法
 
 所有评价均在相同 Benchmark 的增强基金之间完成（Like-for-Like Comparison）。
 
@@ -239,7 +231,7 @@ $$pct_i = \frac{rank_i}{N_{group}} \times 100\%$$
 
 **小样本模式**（$N_{group} < 20$ 只）：改用绝对阈值法（如一年超额 > 3% 视为突出），避免小样本下百分位失真。
 
-### 4.3 Alpha 三周期评估
+### 4.2 Alpha 三周期评估
 
 | 周期 | 指标 | 用途 |
 |------|------|------|
@@ -249,7 +241,7 @@ $$pct_i = \frac{rank_i}{N_{group}} \times 100\%$$
 
 趋势判断引入**容忍区间** $\epsilon = 0.5\%$（`TREND_TOLERANCE`），避免微小波动被误判为趋势：
 
-$$\text{趋势} = \begin{cases} \text{📈 改善} & \alpha_{1m} - \alpha_{6m} > \epsilon \;\land\; \alpha_{6m} - \alpha_{1y} > \epsilon \\ \text{⚠️ 回落} & \alpha_{6m} - \alpha_{1m} > \epsilon \;\land\; \alpha_{1y} - \alpha_{6m} > \epsilon \\ \text{平稳} & \text{otherwise} \end{cases}$$
+$$\text{趋势} = \begin{cases} \text{改善} & \alpha_{1m} - \alpha_{6m} > \epsilon \;\land\; \alpha_{6m} - \alpha_{1y} > \epsilon \\ \text{回落} & \alpha_{6m} - \alpha_{1m} > \epsilon \;\land\; \alpha_{1y} - \alpha_{6m} > \epsilon \\ \text{平稳} & \text{otherwise} \end{cases}$$
 
 > **符号说明：**
 > - $\alpha_{1y}$：近一年超额收益（`year_1_alpha`）
@@ -318,7 +310,7 @@ $$\text{趋势} = \begin{cases} \text{📈 改善} & \alpha_{1m} - \alpha_{6m} >
 ### 6.1 GitHub Actions 工作流
 
 ```yaml
-触发条件: 每个工作日 18:00 (UTC 10:00)
+触发条件: 每个工作日 21:00 (UTC 13:00)，确保基金净值已公布
 运行环境: ubuntu-latest, Python 3.12
 步骤:
   01 更新基金池 → 02 获取最新净值 → 03 计算收益与风险指标
