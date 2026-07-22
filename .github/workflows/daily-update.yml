@@ -2,8 +2,8 @@ name: 每日更新指数增强基金排名
 
 on:
   schedule:
-    # 北京时间每个交易日 18:00 (UTC 10:00)，确保收盘数据已出
-    - cron: "0 10 * * 1-5"
+    # 北京时间每个交易日 21:00 (UTC 13:00)，确保基金净值已公布完毕
+    - cron: "0 13 * * 1-5"
   workflow_dispatch:
 
 permissions:
