@@ -42,9 +42,10 @@ jobs:
           path: |
             data/nav/
             data/index/
-          key: fund-nav-idx-${{ runner.os }}-${{ github.run_date }}
+            data/fund_detail_cache.parquet
+          key: fund-cache-${{ runner.os }}-${{ github.run_date }}
           restore-keys: |
-            fund-nav-idx-${{ runner.os }}-
+            fund-cache-${{ runner.os }}-
 
       - name: 01 更新基金池
         run: python 01_build_fund_pool1.py
