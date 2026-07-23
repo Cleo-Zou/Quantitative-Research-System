@@ -1,13 +1,3 @@
-"""
-研究标签（Research Tags）生成
-
-标签分两层:
-    第一层 — 状态标签（互斥）: [观察样本] / 正常
-    第二层 — 能力标签（可叠加）:
-        核心五维 — [高收益] [低波动] [高波动] [高Sharpe] [高Calmar] [低回撤] [高回撤]
-        Alpha   — [持续跑赢] [超额突出] [Alpha稳定] [短期改善] [近期回落] [超额偏弱] [超额落后]
-"""
-
 import pandas as pd
 
 from config import (
@@ -20,15 +10,6 @@ from config import (
 
 
 def determine_tags(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    为每只基金生成研究标签。
-
-    参数:
-        df: 含 ranking 计算结果及 profile 字段
-
-    返回:
-        原 DataFrame + status / tags 列
-    """
     df = df.copy()
     statuses = []
     all_tags: list[str] = []
@@ -52,9 +33,8 @@ def determine_tags(df: pd.DataFrame) -> pd.DataFrame:
         a6_val = a6 if pd.notna(a6) else 0
         a1m_val = a1m if pd.notna(a1m) else 0
 
-        # ═══════════════════════════════════════════
+    
         #  核心五维标签
-        # ═══════════════════════════════════════════
 
         # 高收益
         if row.get("is_return_good", False):
@@ -80,10 +60,7 @@ def determine_tags(df: pd.DataFrame) -> pd.DataFrame:
         elif row.get("is_drawdown_worst", False):
             tags.append("[高回撤]")
 
-        # ═══════════════════════════════════════════
         #  Alpha 标签
-        # ═══════════════════════════════════════════
-
         if pd.notna(a1):
             # 持续跑赢: 各周期全部 > 0
             if a1 > 0 and a6_val > 0 and a1m_val > 0:

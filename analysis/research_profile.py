@@ -1,14 +1,3 @@
-"""
-基金画像（Profile）判定
-
-五类画像（基于五核心指标 + Alpha）:
-    稳健增强型     — Alpha 正向，Sharpe/Calmar 好，回撤可控
-    风险收益优化型 — 超额不突出但风险控制优秀（Sharpe/Calmar 高，波动低）
-    高弹性增强型   — 收益/Alpha 突出但波动或回撤显著偏高
-    普通增强型     — 各项指标处于同类中游
-    指数复制型     — Alpha 接近零，增强特征不明显
-"""
-
 import pandas as pd
 
 from config import (

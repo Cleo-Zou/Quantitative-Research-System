@@ -1,14 +1,3 @@
-"""
-研究摘要（Research Summary）自动拼装
-
-五段模板（融合导师要求的五核心指标 + Alpha）:
-    ① Return      — 收益能力（Annual Return + Annual Alpha）
-    ② Risk        — 风险控制（Annual Volatility + Max Drawdown）
-    ③ Risk-Adjusted — 风险调整收益（Sharpe + Calmar）
-    ④ Consistency — 超额持续性（Alpha 趋势）
-    ⑤ Summary     — 综合画像
-"""
-
 import pandas as pd
 import numpy as np
 

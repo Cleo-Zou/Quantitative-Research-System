@@ -2,8 +2,9 @@ name: 每日更新指数增强基金排名
 
 on:
   schedule:
-    # 北京时间每个交易日 21:00 (UTC 13:00)，确保基金净值已公布完毕
-    - cron: "0 13 * * 1-5"
+    # 北京时间次日 07:00 (UTC 23:00) 周二~周六，确保前一个交易日净值已公布完毕
+    # 天天基金净值通常在当晚 18:00-22:00 陆续公布，次日清晨一定可用
+    - cron: "0 23 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,17 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 恢复净值与指数缓存
+        uses: actions/cache@v4
+        id: cache-data
+        with:
+          path: |
+            data/nav/
+            data/index/
+          key: fund-nav-idx-${{ runner.os }}-${{ github.run_date }}
+          restore-keys: |
+            fund-nav-idx-${{ runner.os }}-
+
       - name: 01 更新基金池
         run: python 01_build_fund_pool1.py
         continue-on-error: true
@@ -63,17 +75,24 @@ jobs:
           from datetime import datetime, timedelta
           path = 'data/return/excess_return.parquet'
           if not os.path.exists(path):
-              print('[WARN] excess_return.parquet 不存在')
-              sys.exit(0)
+              print(f'[FATAL] {path} 不存在，数据流水线可能失败')
+              sys.exit(1)
           df = pd.read_parquet(path)
           latest = pd.to_datetime(df['date'].max()).date()
           today = datetime.now().date()
           print(f'数据日期: {latest}')
           print(f'当前日期: {today}')
-          # 允许 1 个交易日的延迟（周末/节假日）
           diff = (today - latest).days
+          # 容忍 ≤3 自然日延迟（覆盖周末 & 1天节假日缓冲）
+          # 例如: 周五数据 → 周一 holiday → 周二 cron (UTC Mon) diff=3 → 仅警告
           if diff > 3:
-              print(f'[WARN] 数据延迟 {diff} 天，可能缺少最新交易日数据')
+              print(f'[FATAL] 数据延迟 {diff} 天（>3），拒绝部署陈旧数据')
+              print(f'  当前 UTC 日期: {today}')
+              print(f'  最新数据日期: {latest}')
+              print(f'  可能原因: API 数据源异常 / 长时间假期 / 上游流水线失败')
+              sys.exit(1)
+          elif diff > 2:
+              print(f'[WARN] 数据延迟 {diff} 天（容忍范围内，继续部署）')
           else:
               print('[OK] 数据为近期数据')
           "

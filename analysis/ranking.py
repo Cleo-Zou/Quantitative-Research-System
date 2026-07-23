@@ -1,21 +1,3 @@
-"""
-同类分组排名 & 百分位计算
-
-- 按 benchmark_index 分组
-- 对五类核心指标 + Alpha 计算组内排名和百分位
-- 小样本（< MIN_SAMPLE_PERCENTILE）标记 is_small_sample = True
-
-核心指标（导师要求）:
-    ① Annual Return     (越高越好)
-    ② Annual Volatility (越低越好)
-    ③ Sharpe Ratio      (越高越好)
-    ④ Max Drawdown      (回撤越小越好)
-    ⑤ Calmar Ratio      (越高越好)
-
-辅助指标（项目特色）:
-    Annual Alpha / 6M Alpha / 1M Alpha
-"""
-
 import pandas as pd
 
 from config import (
@@ -28,12 +10,6 @@ from config import (
 
 
 def _rank_and_pct(group: pd.DataFrame, col: str, ascending: bool = True) -> pd.DataFrame:
-    """
-    对 group 的 col 列进行组内排名，添加 {col}_rank 和 {col}_pct 两列。
-
-    ascending=True  → 值越大排名越前（适用于收益、Sharpe、Calmar、Alpha）
-    ascending=False → 值越小排名越前（暂未使用，统一用 ascending=True + 解读层区分方向）
-    """
     rank_col = f"{col}_rank"
     pct_col = f"{col}_pct"
 
@@ -53,17 +29,7 @@ def _rank_and_pct(group: pd.DataFrame, col: str, ascending: bool = True) -> pd.D
 
 
 def compute_rankings(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    对每只基金计算同类排名与百分位。
-
-    参数:
-        df: DataFrame, 必须包含 benchmark_index 及各指标列
-
-    返回:
-        原 DataFrame + _rank / _pct 列 + is_small_sample + 布尔标记
-    """
     result_parts = []
-
     # 指标列表: (列名, 方向说明)
     # ascending=True → 值大排前面 (rank=1 最好)
     metric_cols = [
