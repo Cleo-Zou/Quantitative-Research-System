@@ -19,16 +19,16 @@ CHART_DAYS = 90  # 折线图展示最近多少个交易日
 
 # ── 各周期对应的"成立不足X"说明 ──
 PERIOD_HIERARCHY = [
-    ("year_1_change",  "month_6_change",  "成立不足1年"),
-    ("month_6_change", "month_1_change",  "成立不足6月"),
-    ("month_1_change", "daily_change",    "成立不足1月"),
-    ("daily_change",   None,              "无数据"),
+    ("ytd_change",      "month_6_change",  "成立不足1年"),
+    ("month_6_change",  "day_20_change",   "成立不足6月"),
+    ("day_20_change",   "daily_change",    "成立不足20日"),
+    ("daily_change",    None,              "无数据"),
 ]
 PERIOD_HIERARCHY_EXCESS = [
-    ("year_1_excess",  "month_6_excess",  "成立不足1年"),
-    ("month_6_excess", "month_1_excess",  "成立不足6月"),
-    ("month_1_excess", "daily_excess",    "成立不足1月"),
-    ("daily_excess",   None,              "无数据"),
+    ("ytd_excess",      "month_6_excess",  "成立不足1年"),
+    ("month_6_excess",  "day_20_excess",   "成立不足6月"),
+    ("day_20_excess",   "daily_excess",    "成立不足20日"),
+    ("daily_excess",    None,              "无数据"),
 ]
 
 # 指数代码 → 本地 parquet 路径
@@ -79,6 +79,28 @@ def load_data():
         return pd.DataFrame()
     df = pd.read_parquet(EXCESS_RETURN_PATH)
     print(f"读取基金数据: {len(df)} 条")
+
+    # 加载成立时间 / 成立规模（从缓存）
+    cache_path = os.path.join(os.path.dirname(EXCESS_RETURN_PATH), "..", "fund_detail_cache.parquet")
+    cache_path = os.path.normpath(cache_path)
+    if os.path.exists(cache_path):
+        cache = pd.read_parquet(cache_path)
+        if "launch_date" in cache.columns:
+            lm = {}
+            for _, r in cache.iterrows():
+                ld = r["launch_date"]
+                if pd.notna(ld) and str(ld) not in ("", "nan", "None"):
+                    lm[str(r["fund_code"]).zfill(6)] = str(ld)
+            df["launch_date"] = df["fund_code"].map(lm)
+        if "scale" in cache.columns:
+            sm = {}
+            for _, r in cache.iterrows():
+                sc = r["scale"]
+                if pd.notna(sc) and str(sc) not in ("", "nan", "None"):
+                    sm[str(r["fund_code"]).zfill(6)] = str(sc)
+            df["scale"] = df["fund_code"].map(sm)
+        print(f"  已加载成立时间/规模信息")
+
     return df
 
 
@@ -87,17 +109,19 @@ COLUMN_LABELS = {
     "fund_code": "基金代码",
     "fund_name": "基金简称",
     "benchmark_name": "指数名称",
+    "launch_date": "成立时间",
+    "scale": "成立规模",
     "daily_change": "日涨跌幅",
-    "month_1_change": "月涨跌幅",
-    "year_1_change": "年涨跌幅",
+    "day_20_change": "20日涨跌幅",
+    "ytd_change": "YTD",
     "daily_excess": "日超额",
-    "month_1_excess": "月超额",
-    "year_1_excess": "年超额",
+    "day_20_excess": "20日超额",
+    "ytd_excess": "YTD超额",
 }
 
 PCT_COLUMNS = [
-    "daily_change", "month_1_change", "year_1_change",
-    "daily_excess", "month_1_excess", "year_1_excess",
+    "daily_change", "day_20_change", "ytd_change",
+    "daily_excess", "day_20_excess", "ytd_excess",
 ]
 
 _AUX_COLUMNS = ["month_6_change", "month_6_excess"]
@@ -242,9 +266,10 @@ def prepare_table(df):
     df = df.sort_values("fund_code", ascending=True)
 
     columns = [
-        "fund_code", "fund_name", "benchmark_name",
-        "daily_change", "month_1_change", "year_1_change",
-        "daily_excess", "month_1_excess", "year_1_excess",
+        "fund_code", "fund_name", "benchmark_index", "benchmark_name",
+        "launch_date", "scale",
+        "daily_change", "day_20_change", "ytd_change",
+        "daily_excess", "day_20_excess", "ytd_excess",
     ]
 
     aux = [c for c in _AUX_COLUMNS if c in df.columns]
@@ -267,45 +292,61 @@ def generate_html(df, latest_date, chart_data: dict):
 
     date_str = str(latest_date)
     labels = COLUMN_LABELS.copy()
-    # 日涨跌幅不加日期后缀——日期展示在页面头部
 
     display_df = df.rename(columns=labels)
+    # 不展示 benchmark_index 原始列
+    if "benchmark_index" in display_df.columns:
+        display_df = display_df.drop(columns=["benchmark_index"])
 
-    # 给每行加 data-code 属性，方便 JS 点击时找到对应图表数据
-    # pandas to_html 不支持自定义 tr 属性，需要后处理
-    table_html = display_df.to_html(
-        index=False, escape=False, classes="fund-table", border=0
-    )
+    benchmarks = ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]
 
-    # 在 <tr> 上注入 data-code 属性
-    codes = df["fund_code"].tolist()
+    # ── 辅助：为单个 group 生成 <table> HTML ──
+    def _build_group_table(g_df, g_display):
+        """g_df: 含原始列（fund_code 等）；g_display: 已重命名列"""
+        codes = g_df["fund_code"].tolist()
+        table_html = g_display.to_html(
+            index=False, escape=False, classes="fund-table", border=0
+        )
 
-    def add_data_code(m):
-        nonlocal idx
-        code = codes[idx] if idx < len(codes) else ""
-        idx += 1
-        has_chart = "true" if code in chart_data else "false"
-        return f'<tr data-code="{code}" data-chart="{has_chart}" class="{"clickable" if has_chart else ""}" style="cursor:{"pointer" if has_chart else "default"}">'
+        # 在 <tr> 上注入 data-code / data-chart 属性
+        idx = 0
 
-    # 处理 tbody 中的 <tr>
-    parts = table_html.split("<tbody>")
-    if len(parts) == 2:
-        before_tbody = parts[0]
-        after_tbody = parts[1]
+        def add_data_code(m):
+            nonlocal idx
+            code = codes[idx] if idx < len(codes) else ""
+            idx += 1
+            has_chart = "true" if code in chart_data else "false"
+            return f'<tr data-code="{code}" data-chart="{has_chart}" class="{"clickable" if has_chart else ""}" style="cursor:{"pointer" if has_chart else "default"}">'
+
+        parts = table_html.split("<tbody>")
+        if len(parts) == 2:
+            before_tbody = parts[0]
+            after_tbody = parts[1]
+            idx = 0
+            after_tbody = re.sub(r"<tr>", add_data_code, after_tbody)
+        else:
+            before_tbody = table_html
+            after_tbody = ""
+
         idx = 0
         after_tbody = re.sub(r"<tr>", add_data_code, after_tbody)
-        # 重置 idx 处理 <tr style=...> 的情况
-    else:
-        before_tbody = table_html
-        after_tbody = ""
+        return before_tbody + "<tbody>" + after_tbody
 
-    idx = 0
-    after_tbody = re.sub(r"<tr>", add_data_code, after_tbody)
-    table_html = before_tbody + "<tbody>" + after_tbody
+    # ── 构建各组表格 ──
+    tables = {}
+    counts = {}
+    for bm in benchmarks:
+        g_df = df[df["benchmark_index"] == bm]
+        if g_df.empty:
+            continue
+        g_df = g_df.sort_values("fund_code")
+        g_display = display_df.loc[g_df.index]
+        tables[bm] = _build_group_table(g_df, g_display)
+        counts[bm] = len(g_df)
 
-    # 统计空值
+    # ── 统计空值（用新字段名） ──
     empty_counts = {}
-    for key in ["year_1_change", "month_1_change", "daily_change"]:
+    for key in ["ytd_change", "day_20_change", "daily_change"]:
         col_label = labels.get(key, key)
         if col_label not in display_df.columns:
             continue
@@ -322,6 +363,22 @@ def generate_html(df, latest_date, chart_data: dict):
 
     chart_json_str = json.dumps(chart_data, ensure_ascii=False)
 
+    # ── 构造 Tab 按钮 ──
+    tab_btns = []
+    tab_wrappers = []
+    for i, bm in enumerate(benchmarks):
+        if bm not in tables:
+            continue
+        active = " active" if i == 0 else ""
+        tab_btns.append(
+            f'<div class="tab-btn{active}" data-tab="{bm}">'
+            f'{INDEX_NAMES.get(bm, bm)} ({counts[bm]})</div>'
+        )
+        tab_wrappers.append(
+            f'<div class="table-wrapper{active}" id="table-{bm}">\n'
+            f'{tables[bm]}\n</div>'
+        )
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -333,35 +390,42 @@ def generate_html(df, latest_date, chart_data: dict):
     body {{
         font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
         background: #0f1923; color: #d0d6dc;
-        padding: 32px 48px; min-height: 100vh;
+        padding: 24px 36px; min-height: 100vh;
     }}
     .header {{
-        text-align: center;
-        margin-bottom: 24px; padding-bottom: 20px;
+        text-align: center; margin-bottom: 20px; padding-bottom: 16px;
         border-bottom: 2px solid #1a2d3d;
     }}
-    .header h1 {{ font-size: 26px; font-weight: 600; color: #e8ecf1; letter-spacing: 2px; }}
-    .header .meta {{ font-size: 13px; color: #d0d6dc; font-variant-numeric: tabular-nums; margin-top: 8px; display: block; }}
+    .header h1 {{ font-size: 24px; font-weight: 600; color: #e8ecf1; letter-spacing: 2px; }}
+    .header .meta {{ font-size: 13px; color: #d0d6dc; margin-top: 8px; }}
+
+    /* ── Tabs ── */
+    .tabs {{ display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }}
+    .tab-btn {{
+        padding: 8px 20px; border: 1px solid #1e3040; border-radius: 4px 4px 0 0;
+        background: #152028; color: #6a8090; cursor: pointer; font-size: 13px;
+        transition: all 0.2s; font-family: inherit;
+    }}
+    .tab-btn:hover {{ color: #b0c0d0; border-color: #253d50; }}
+    .tab-btn.active {{ background: #1a2e3d; color: #e8ecf1; border-color: #3d7eff; border-bottom-color: #1a2e3d; }}
 
     .table-wrapper {{
-        background: #152028; border: 1px solid #1e3040; border-radius: 6px; overflow: hidden;
+        background: #152028; border: 1px solid #1e3040; border-radius: 0 6px 6px 6px;
+        overflow-x: auto; display: none;
     }}
+    .table-wrapper.active {{ display: block; }}
 
-    table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
+    table {{ border-collapse: collapse; width: 100%; table-layout: auto; min-width: 1000px; }}
     thead th {{
         background: #1a2e3d; color: #8899aa;
-        font-size: 14px; font-weight: 500; text-transform: uppercase;
-        letter-spacing: 0.5px; padding: 14px 8px; text-align: center;
+        font-size: 12px; font-weight: 500; text-transform: uppercase;
+        letter-spacing: 0.5px; padding: 12px 8px; text-align: center;
         border-bottom: 2px solid #253d50;
-        position: sticky; top: 0; z-index: 10;
+        position: sticky; top: 0; z-index: 10; white-space: nowrap;
     }}
-    thead th:first-child {{ width: 9%; }}
-    thead th:nth-child(2) {{ width: 22%; }}
-    thead th:nth-child(3) {{ width: 11%; }}
-    thead th:nth-child(n+4) {{ width: 9.66%; }}
 
     tbody td {{
-        padding: 9px 8px; font-size: 13px; text-align: center;
+        padding: 8px 6px; font-size: 12px; text-align: center;
         border-bottom: 1px solid #1a2a35;
         font-variant-numeric: tabular-nums; color: #c8d0d8;
     }}
@@ -372,11 +436,9 @@ def generate_html(df, latest_date, chart_data: dict):
 
     tbody td:first-child {{
         color: #6a8090; font-family: "SF Mono", "Consolas", "Menlo", monospace;
-        font-size: 14px; letter-spacing: 0.5px;
+        font-size: 13px; letter-spacing: 0.5px;
     }}
-    tbody td:nth-child(2) {{ text-align: center; color: #d8dfe6; font-weight: 450; }}
-    tbody td:nth-child(3) {{ color: #8a9ba8; font-size: 12px; font-weight: 500; }}
-    tbody td:nth-child(n+4) {{ font-weight: 500; }}
+    tbody td:nth-child(2) {{ color: #d8dfe6; font-weight: 450; }}
 
     .empty-reason {{ color: #4a5d6e; font-size: 11px; font-weight: 400; }}
 
@@ -395,9 +457,9 @@ def generate_html(df, latest_date, chart_data: dict):
     th.sortable:hover {{ color: #b0c0d0; }}
 
     .footnote {{
-        margin-top: 20px; padding: 10px 16px;
+        margin-top: 16px; padding: 10px 16px;
         background: #152028; border: 1px solid #1e3040; border-radius: 4px;
-        color: #5a6f80; font-size: 12px;
+        color: #5a6f80; font-size: 11px;
     }}
     .footnote p {{ margin: 0; }}
 
@@ -432,12 +494,15 @@ def generate_html(df, latest_date, chart_data: dict):
 
 <div class="header">
     <h1>沪深300 · 中证500 · 中证1000 · 中证全指 指数增强基金</h1>
-    <span class="meta">数据日期: {date_str} &nbsp;|&nbsp; 共 {len(display_df)} 只基金</span>
+    <span class="meta">数据日期: {date_str} &nbsp;|&nbsp; 共 {len(display_df)} 只基金 &nbsp;|&nbsp;
+      {", ".join(f"{INDEX_NAMES.get(bm, bm)} {counts.get(bm, 0)}只" for bm in benchmarks if bm in tables)}</span>
 </div>
 
-<div class="table-wrapper">
-{table_html}
+<div class="tabs">
+    {"".join(tab_btns)}
 </div>
+
+{"".join(tab_wrappers)}
 
 {empty_note}
 
@@ -498,7 +563,6 @@ function openModal(fundCode, fundName) {{
         }});
     }}
 
-    // 找超额最大/最小区间给 markArea 标注
     var option = {{
         backgroundColor: 'transparent',
         grid: {{ left: '8%', right: '5%', top: 20, bottom: 55 }},
@@ -573,86 +637,84 @@ window.addEventListener('resize', function() {{
     if (modalOverlay.classList.contains('active')) myChart.resize();
 }});
 
-// ── 表格排序 ──
+// ── Tab 切换 ──
 (function() {{
-    var table = document.querySelector('table.fund-table');
-    if (!table) return;
-    var thead = table.querySelector('thead');
-    var tbody = table.querySelector('tbody');
-
-    // 给数值列 th 添加排序按钮（跳过前 3 列: 代码/简称/指数）
-    var headers = thead.querySelectorAll('th');
-    var sortState = {{}}; // {{colIndex: 'asc'|'desc'|null}}
-
-    headers.forEach(function(th, colIdx) {{
-        if (colIdx < 3) return; // 跳过代码、简称、指数
-
-        th.classList.add('sortable');
-        var label = document.createTextNode(' ');
-        var btns = document.createElement('span');
-        btns.className = 'sort-btns';
-        btns.innerHTML = '<span class="sort-btn sort-asc">&#9650;</span><span class="sort-btn sort-desc">&#9660;</span>';
-        th.appendChild(label);
-        th.appendChild(btns);
-
-        var ascBtn = btns.querySelector('.sort-asc');
-        var descBtn = btns.querySelector('.sort-desc');
-
-        var ascBtn = btns.querySelector('.sort-asc');
-        var descBtn = btns.querySelector('.sort-desc');
-
-        // ▲ 升序（从低到高）
-        ascBtn.addEventListener('click', function(e) {{
-            e.stopPropagation();
-            Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
-            resetAllArrows();
-            sortState[colIdx] = 'asc';
-            ascBtn.classList.add('active');
-            sortTable(colIdx, 'asc');
+    var tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(function(btn) {{
+        btn.addEventListener('click', function() {{
+            var tab = this.getAttribute('data-tab');
+            tabBtns.forEach(function(b) {{ b.classList.remove('active'); }});
+            this.classList.add('active');
+            document.querySelectorAll('.table-wrapper').forEach(function(t) {{ t.classList.remove('active'); }});
+            document.getElementById('table-' + tab).classList.add('active');
         }});
+    }});
+}})();
 
-        // ▼ 降序（从高到低）
-        descBtn.addEventListener('click', function(e) {{
-            e.stopPropagation();
-            Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
-            resetAllArrows();
-            sortState[colIdx] = 'desc';
-            descBtn.classList.add('active');
-            sortTable(colIdx, 'desc');
-        }});
+// ── 表格排序（每张表独立） ──
+(function() {{
+    document.querySelectorAll('.fund-table').forEach(function(table) {{
+        var tbody = table.querySelector('tbody');
+        var headers = table.querySelectorAll('th');
+        var sortState = {{}};
 
-        // 点击标题文字 → 恢复默认排序
-        th.addEventListener('click', function(e) {{
-            Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
-            resetAllArrows();
-            sortTable(0, null);
+        headers.forEach(function(th, colIdx) {{
+            if (colIdx < 3) return; // 跳过代码、简称、指数
+
+            th.classList.add('sortable');
+            var btns = document.createElement('span');
+            btns.className = 'sort-btns';
+            btns.innerHTML = '<span class="sort-btn sort-asc">&#9650;</span><span class="sort-btn sort-desc">&#9660;</span>';
+            th.appendChild(document.createTextNode(' '));
+            th.appendChild(btns);
+
+            var ascBtn = btns.querySelector('.sort-asc');
+            var descBtn = btns.querySelector('.sort-desc');
+
+            ascBtn.addEventListener('click', function(e) {{
+                e.stopPropagation();
+                Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
+                resetAllArrows(table);
+                sortState[colIdx] = 'asc';
+                ascBtn.classList.add('active');
+                sortTable(table, colIdx, 'asc');
+            }});
+
+            descBtn.addEventListener('click', function(e) {{
+                e.stopPropagation();
+                Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
+                resetAllArrows(table);
+                sortState[colIdx] = 'desc';
+                descBtn.classList.add('active');
+                sortTable(table, colIdx, 'desc');
+            }});
+
+            th.addEventListener('click', function(e) {{
+                Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
+                resetAllArrows(table);
+                sortTable(table, 0, null);
+            }});
         }});
     }});
 
-    function resetAllArrows() {{
-        document.querySelectorAll('.sort-btn').forEach(function(b) {{
-            b.classList.remove('active');
-        }});
+    function resetAllArrows(table) {{
+        table.querySelectorAll('.sort-btn').forEach(function(b) {{ b.classList.remove('active'); }});
     }}
 
     function parseCellValue(td) {{
-        // 尝试从 span 中提取数值
         var span = td.querySelector('span');
         var text = span ? span.textContent.trim() : td.textContent.trim();
-        // 匹配百分比: +1.23% 或 -0.50%
         var pctMatch = text.match(/^([+-]?\\d+\\.?\\d*)%?$/);
         if (pctMatch) return parseFloat(pctMatch[1]);
-        // 空值原因（成立不足X年等）→ 排到最后
         if (text && !text.match(/^[+-]?\\d/)) return -Infinity;
-        // 纯数字
         var num = parseFloat(text);
         return isNaN(num) ? -Infinity : num;
     }}
 
-    function sortTable(colIdx, dir) {{
+    function sortTable(table, colIdx, dir) {{
+        var tbody = table.querySelector('tbody');
         var rows = Array.from(tbody.querySelectorAll('tr'));
         if (!dir) {{
-            // 恢复默认排序（fund_code 升序）
             rows.sort(function(a, b) {{
                 var aCode = a.querySelector('td:first-child').textContent.trim();
                 var bCode = b.querySelector('td:first-child').textContent.trim();

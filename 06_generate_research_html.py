@@ -18,6 +18,8 @@ OUTPUT_HTML = "output/research.html"
 COLUMNS = [
     ("fund_code",         "基金代码",   "code", 0),
     ("fund_name",         "基金简称",   "text", 0),
+    ("launch_date",       "成立时间",   "text", 0),
+    ("scale",             "成立规模",   "text", 0),
     ("annual_return",     "年化收益",   "pct",  2),
     ("annual_volatility", "年化波动率", "pct",  2),
     ("sharpe_ratio",      "Sharpe",    "num",  2),
@@ -61,7 +63,7 @@ def load_and_analyze():
     ]
     df = excess[[c for c in core_cols if c in excess.columns]].copy()
 
-    # launch_date from cache
+    # launch_date / scale from cache
     cache_path = os.path.join(os.path.dirname(EXCESS_RETURN_PATH), "..", "fund_detail_cache.parquet")
     cache_path = os.path.normpath(cache_path)
     if os.path.exists(cache_path):
@@ -73,6 +75,13 @@ def load_and_analyze():
                 if pd.notna(ld) and str(ld) not in ("", "nan", "None"):
                     lm[str(r["fund_code"]).zfill(6)] = str(ld)
             df["launch_date"] = df["fund_code"].map(lm)
+        if "scale" in cache.columns:
+            sm = {}
+            for _, r in cache.iterrows():
+                sc = r["scale"]
+                if pd.notna(sc) and str(sc) not in ("", "nan", "None"):
+                    sm[str(r["fund_code"]).zfill(6)] = str(sc)
+            df["scale"] = df["fund_code"].map(sm)
 
     # 过滤
     alpha_cols = ["year_1_alpha", "month_6_alpha", "month_1_alpha"]
@@ -114,6 +123,10 @@ def _build_table_rows(group, col_keys, col_types, col_decimals):
                 cells.append(f'<td class="code">{val}</td>')
             elif ck == "fund_name":
                 cells.append(f'<td class="name" title="{val}">{val}</td>')
+            elif ck == "launch_date":
+                cells.append(f'<td class="launch-date">{str(val) if pd.notna(val) else ""}</td>')
+            elif ck == "scale":
+                cells.append(f'<td class="scale">{str(val) if pd.notna(val) else ""}</td>')
             elif ck == "profile":
                 color = PROFILE_COLORS.get(str(val), "#8899aa")
                 cells.append(f'<td style="color:{color};font-weight:600;">{val}</td>')
@@ -230,8 +243,8 @@ def generate_html(df, date_str="latest"):
     td.name {{ color: #d8dfe6; font-weight: 450; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }}
     td.tags {{ font-size: 11px; text-align: left; max-width: 200px; color: #8899aa; }}
 
-    td.positive {{ color: #2ecc71; font-weight: 500; }}
-    td.negative {{ color: #f75454; font-weight: 500; }}
+    td.positive {{ color: #f75454; font-weight: 500; }}
+    td.negative {{ color: #2ecc71; font-weight: 500; }}
     td.empty-reason {{ color: #4a5d6e; font-size: 11px; font-weight: 400; }}
 
     /* ── Sort buttons ── */
@@ -262,8 +275,8 @@ def generate_html(df, date_str="latest"):
 
 <div class="footnote">
     <p>
-      <span><span class="legend-dot" style="background:#2ecc71;"></span> 正收益/超额</span>
-      <span><span class="legend-dot" style="background:#f75454;"></span> 负收益/超额</span>
+      <span><span class="legend-dot" style="background:#f75454;"></span> 正收益/超额</span>
+      <span><span class="legend-dot" style="background:#2ecc71;"></span> 负收益/超额</span>
       <span style="margin-left:16px;">Profile:
         <span style="color:#2ecc71;">稳健增强</span> &mdash; Alpha正向，风险可控；
         <span style="color:#3d7eff;">风险收益优化</span> &mdash; Sharpe/Calmar居前；
