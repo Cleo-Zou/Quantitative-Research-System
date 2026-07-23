@@ -35,18 +35,19 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: 恢复净值与指数缓存
+      - name: 恢复数据缓存
         uses: actions/cache@v4
         id: cache-data
         with:
           path: |
             data/nav/
             data/index/
+            data/fund_master.parquet
             data/fund_detail_cache.parquet
-          key: fund-cache-${{ runner.os }}-${{ github.run_date }}
+            data/fund_return.parquet
+          key: fund-data-v3-${{ runner.os }}-${{ github.run_date }}
           restore-keys: |
-            fund-cache-${{ runner.os }}-
-            fund-nav-idx-${{ runner.os }}-
+            fund-data-v3-${{ runner.os }}-
 
       - name: 01 更新基金池
         run: python 01_build_fund_pool1.py
