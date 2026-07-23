@@ -46,6 +46,7 @@ jobs:
           key: fund-cache-${{ runner.os }}-${{ github.run_date }}
           restore-keys: |
             fund-cache-${{ runner.os }}-
+            fund-nav-idx-${{ runner.os }}-
 
       - name: 01 更新基金池
         run: python 01_build_fund_pool1.py
