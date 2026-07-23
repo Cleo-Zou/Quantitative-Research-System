@@ -14,6 +14,7 @@
 import os
 import time
 import random
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import pandas as pd
 import akshare as ak
 
@@ -41,9 +42,10 @@ SHEET_BM_MAP = {
 CACHE_PATH = os.path.join(DATA_DIR, "fund_detail_cache.parquet")
 VALIDATION_REPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", "fund_verification_report.csv")
 
-REQUEST_DELAY_MIN = 0.8
-REQUEST_DELAY_MAX = 1.8
-MAX_RETRIES = 5
+REQUEST_DELAY_MIN = 0.3
+REQUEST_DELAY_MAX = 0.8
+MAX_RETRIES = 2
+API_TIMEOUT = 15  # 单次API调用超时秒数
 CACHE_SAVE_INTERVAL = 50
 
 
@@ -149,18 +151,22 @@ def load_whitelist() -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════
 
 def _fetch_fund_detail(code: str, cache: dict) -> dict | None:
-    """调用 AKShare 获取基金详情（优先缓存）"""
+    """调用 AKShare 获取基金详情（优先缓存，带超时）"""
     if code in cache:
         return cache[code]
 
     for attempt in range(MAX_RETRIES):
         try:
             if attempt > 0:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
+                time.sleep(1 + random.uniform(0, 0.5))
             else:
                 _random_sleep()
 
-            df = ak.fund_individual_basic_info_xq(symbol=code)
+            # 用线程超时防止 AKShare 调用卡死
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(ak.fund_individual_basic_info_xq, symbol=code)
+                df = future.result(timeout=API_TIMEOUT)
+
             if df is None or df.empty:
                 raise ValueError("empty response")
 
@@ -205,6 +211,9 @@ def _fetch_fund_detail(code: str, cache: dict) -> dict | None:
             cache[code] = detail
             return detail
 
+        except FuturesTimeoutError:
+            print(f"\n  [TIMEOUT] {code} API 超时 ({API_TIMEOUT}s)，跳过")
+            continue
         except Exception:
             continue
 
