@@ -25,7 +25,7 @@ from config import (
 )
 
 # ── 白名单 Excel 路径 ──
-WHITELIST_EXCEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "副本全市场量化指数基金.xlsx")
+WHITELIST_EXCEL = os.path.join(DATA_DIR, "fund_whitelist.xlsx")
 
 # Sheet 名 → 基准代码
 SHEET_BM_MAP = {
