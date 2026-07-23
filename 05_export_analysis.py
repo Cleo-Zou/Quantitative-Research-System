@@ -54,6 +54,9 @@ def prepare_df(excess: pd.DataFrame, master: pd.DataFrame | None) -> pd.DataFram
         "max_drawdown", "calmar_ratio",
         # Alpha
         "year_1_alpha", "month_6_alpha", "month_1_alpha",
+        # 超额风险指标（03 Step 3.5 计算）
+        "excess_annual_return", "tracking_error", "information_ratio",
+        "excess_max_drawdown", "excess_calmar",
         # 保留 year_1_change 用于兼容
         "year_1_change",
     ]

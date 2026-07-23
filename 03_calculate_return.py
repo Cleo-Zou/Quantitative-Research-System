@@ -260,6 +260,16 @@ def _load_fund_nav(fund_code: str) -> pd.DataFrame | None:
     return df
 
 
+def _load_index_daily_cache(index_code: str) -> pd.DataFrame | None:
+    """加载已缓存的指数日度数据（仅读文件，不触发网络请求）。"""
+    path = os.path.join(INDEX_DIR, f"{index_code}.parquet")
+    df = safe_read_parquet(path)
+    if df is None or df.empty:
+        return None
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    return df.sort_values("date").reset_index(drop=True)
+
+
 def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
     """批量计算所有基金的区间涨跌幅（每只基金一行）"""
     print("=" * 60)
@@ -581,6 +591,16 @@ _EXCESS_FIELDS = [
     "year_1_excess", "year_3_excess", "year_5_excess",
 ]
 
+# 基于日度超额序列的超额风险指标（03 Step 3.5 计算）
+_EXCESS_RISK_COLS = [
+    "excess_annual_return",   # 超额年化收益 = mean(daily_excess) * 252
+    "tracking_error",          # 跟踪误差 = std(daily_excess) * sqrt(252)
+    "information_ratio",       # 信息比率 IR = 超额年化收益 / 跟踪误差
+    "excess_sharpe",           # 超额夏普 = IR（超额口径下等价）
+    "excess_max_drawdown",     # 超额最大回撤（从累计超额序列计算）
+    "excess_calmar",           # 超额卡玛 = 超额年化收益 / |超额最大回撤|
+]
+
 # 各区间对应的近似年限（用于股息修正）
 _PERIOD_YEARS_FIXED: dict[str, float] = {
     "daily_change": 1 / 252,       # ~1 个交易日
@@ -713,6 +733,157 @@ def calculate_excess_performance(
     return result
 
 
+# 4. 超额风险指标（基于日度超额收益序列）
+
+def calculate_excess_risk_metrics(excess_perf: pd.DataFrame) -> pd.DataFrame:
+    """从日度超额收益序列计算超额风险指标。
+
+    对每只基金：
+    1. 加载复权净值 & 对应基准指数日度数据
+    2. 分别计算日收益率
+    3. 对齐日期，得到日度超额序列
+    4. 在该序列上计算 6 个指标
+
+    返回新增 _EXCESS_RISK_COLS 列的 excess_perf。
+    """
+    print("=" * 60)
+    print("Step 3.5  计算超额风险指标（日度序列口径）")
+    print("=" * 60)
+
+    # ── 预加载 4 个指数的日度数据 ──
+    index_daily: dict[str, pd.DataFrame] = {}
+    for idx_code in ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]:
+        label = INDEX_NAMES.get(idx_code, idx_code)
+        raw = _load_index_daily_cache(idx_code)
+        if raw is not None and not raw.empty:
+            # 确保有 adj_nav 列（指数缓存中 index_value 已 rename 为 adj_nav）
+            nav_col = "adj_nav" if "adj_nav" in raw.columns else "index_value"
+            if nav_col not in raw.columns:
+                print(f"  ✗ {label} 缺少净值列，跳过")
+                continue
+            raw = raw[["date", nav_col]].copy()
+            raw["idx_return"] = raw[nav_col].pct_change()
+            raw = raw.dropna(subset=["idx_return"])
+            if len(raw) >= 20:
+                index_daily[idx_code] = raw[["date", "idx_return"]]
+                print(f"  ✓ {label} 日收益序列: {len(raw)} 个交易日")
+            else:
+                print(f"  ✗ {label} 交易日不足（{len(raw)}），跳过")
+        else:
+            print(f"  ✗ {label} 缓存不存在")
+
+    if not index_daily:
+        print("⚠ 无可用指数日度数据，跳过超额风险指标计算\n")
+        for col in _EXCESS_RISK_COLS:
+            excess_perf[col] = None
+        return excess_perf
+
+    # ── 逐基金计算 ──
+    results: dict[str, dict] = {}
+    total = len(excess_perf)
+    t_start = time.time()
+    skipped = 0
+
+    for i, (_, row) in enumerate(excess_perf.iterrows()):
+        code = row["fund_code"]
+        benchmark = str(row.get("benchmark_index", ""))
+
+        # 进度
+        elapsed = time.time() - t_start
+        avg = elapsed / (i + 1) if i > 0 else 0
+        eta = format_seconds(avg * (total - i - 1))
+        pct = (i + 1) / total * 100
+        print(
+            f"\r  [{i + 1:>4}/{total} {pct:>3.0f}%]  "
+            f"✓{len(results):>4}  ✗{skipped:>3}  "
+            f"剩余≈{eta:<8s}  {code}",
+            end="", flush=True,
+        )
+
+        if benchmark not in index_daily:
+            skipped += 1
+            continue
+
+        nav = _load_fund_nav(code)
+        if nav is None or nav.empty:
+            skipped += 1
+            continue
+        if "adj_nav" not in nav.columns:
+            skipped += 1
+            continue
+
+        nav = nav.sort_values("date").reset_index(drop=True)
+        nav["fund_return"] = nav["adj_nav"].pct_change()
+        nav = nav[["date", "fund_return"]].dropna()
+
+        if len(nav) < 20:
+            skipped += 1
+            continue
+
+        # 对齐日期
+        idx_ret = index_daily[benchmark]
+        merged = nav.merge(idx_ret, on="date", how="inner")
+        if len(merged) < 20:
+            skipped += 1
+            continue
+
+        merged["excess"] = merged["fund_return"] - merged["idx_return"]
+        excess_series = merged["excess"].dropna()
+        N = len(excess_series)
+        if N < 20:
+            skipped += 1
+            continue
+
+        # ── 指标计算 ──
+        mean_ex = float(excess_series.mean())
+        std_ex = float(excess_series.std())
+
+        excess_ann_ret = mean_ex * 252
+        tracking_err = std_ex * np.sqrt(252)
+
+        ir = excess_ann_ret / tracking_err if tracking_err > 0 else None
+
+        # 超额累计净值 → 最大回撤
+        cum_excess = (1 + excess_series).cumprod()
+        peak = cum_excess.expanding().max()
+        excess_mdd = float((cum_excess / peak - 1).min())
+
+        excess_cal = (
+            excess_ann_ret / abs(excess_mdd)
+            if excess_mdd is not None and excess_mdd < 0
+            else None
+        )
+
+        results[code] = {
+            "excess_annual_return": round(excess_ann_ret, 8) if excess_ann_ret is not None else None,
+            "tracking_error":       round(tracking_err, 8) if tracking_err is not None else None,
+            "information_ratio":    round(ir, 6) if ir is not None else None,
+            "excess_sharpe":        round(ir, 6) if ir is not None else None,   # 超额口径下 = IR
+            "excess_max_drawdown":  round(excess_mdd, 8) if excess_mdd is not None else None,
+            "excess_calmar":        round(excess_cal, 6) if excess_cal is not None else None,
+        }
+
+    print()
+    elapsed = time.time() - t_start
+    print(f"\n  耗时: {format_seconds(elapsed)}")
+    print(f"  ✓ 计算: {len(results)} 只")
+    print(f"  ✗ 跳过: {skipped} 只")
+
+    # ── 合并回 excess_perf ──
+    for col in _EXCESS_RISK_COLS:
+        excess_perf[col] = excess_perf["fund_code"].map(
+            {k: v.get(col) for k, v in results.items()}
+        )
+
+    # 统计
+    valid_ir = excess_perf["information_ratio"].dropna()
+    if len(valid_ir) > 0:
+        print(f"  IR 均值: {valid_ir.mean():.4f}  中位数: {valid_ir.median():.4f}")
+    print()
+
+    return excess_perf
+
+
 # 5. 保存
 
 def _pct(v) -> str:
@@ -832,6 +1003,10 @@ def main():
     excess_perf = calculate_excess_performance(
         fund_perf, index_perf, fund_master
     )
+
+    # 基于日度超额序列计算风险指标（跟踪误差 / IR / 超额回撤等）
+    if not excess_perf.empty:
+        excess_perf = calculate_excess_risk_metrics(excess_perf)
 
     save_results(fund_perf, index_perf, excess_perf)
 

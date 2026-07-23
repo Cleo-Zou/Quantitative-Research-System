@@ -43,6 +43,12 @@ def compute_rankings(df: pd.DataFrame) -> pd.DataFrame:
         "year_1_alpha",
         "month_6_alpha",
         "month_1_alpha",
+        # ── 超额风险指标 ──
+        "excess_annual_return",   # ascending=True → 超额年化收益越高越好
+        "tracking_error",          # ascending=True → 跟踪误差越低越好
+        "information_ratio",       # ascending=True → IR 越高越好
+        "excess_max_drawdown",     # ascending=True → 超额回撤越小越好
+        "excess_calmar",           # ascending=True → 超额卡玛越高越好
     ]
 
     for benchmark, group in df.groupby("benchmark_index"):
@@ -70,6 +76,11 @@ def compute_rankings(df: pd.DataFrame) -> pd.DataFrame:
     result["is_vol_high"] = False
     result["is_drawdown_worst"] = False
     result["is_drawdown_low"] = False
+    result["is_excess_return_good"] = False
+    result["is_tracking_error_low"] = False
+    result["is_ir_good"] = False
+    result["is_excess_mdd_low"] = False
+    result["is_excess_calmar_good"] = False
 
     for idx, row in result.iterrows():
         a_pct = row.get("year_1_alpha_pct")
@@ -120,5 +131,36 @@ def compute_rankings(df: pd.DataFrame) -> pd.DataFrame:
                 result.at[idx, "is_drawdown_low"] = True
             if m_pct <= MDD_WORST_PCT * 100:
                 result.at[idx, "is_drawdown_worst"] = True
+
+        # ── 超额年化收益 ──
+        ea_pct = row.get("excess_annual_return_pct")
+        if pd.notna(ea_pct) and ea_pct <= TOP_GOOD * 100:
+            ea_val = row.get("excess_annual_return")
+            if pd.notna(ea_val) and ea_val > 0:
+                result.at[idx, "is_excess_return_good"] = True
+
+        # ── 跟踪误差（ascending → 低 TE pct 小 = 好）──
+        te_pct = row.get("tracking_error_pct")
+        if pd.notna(te_pct) and te_pct <= TOP_GOOD * 100:
+            result.at[idx, "is_tracking_error_low"] = True
+
+        # ── 信息比率 ──
+        ir_pct = row.get("information_ratio_pct")
+        if pd.notna(ir_pct) and ir_pct <= TOP_GOOD * 100:
+            ir_val = row.get("information_ratio")
+            if pd.notna(ir_val) and ir_val > 0:
+                result.at[idx, "is_ir_good"] = True
+
+        # ── 超额最大回撤 ──
+        em_pct = row.get("excess_max_drawdown_pct")
+        if pd.notna(em_pct) and em_pct <= TOP_GOOD * 100:
+            result.at[idx, "is_excess_mdd_low"] = True
+
+        # ── 超额卡玛 ──
+        ec_pct = row.get("excess_calmar_pct")
+        if pd.notna(ec_pct) and ec_pct <= TOP_GOOD * 100:
+            ec_val = row.get("excess_calmar")
+            if pd.notna(ec_val) and ec_val > 0:
+                result.at[idx, "is_excess_calmar_good"] = True
 
     return result

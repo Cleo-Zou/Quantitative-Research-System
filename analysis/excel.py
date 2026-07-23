@@ -28,6 +28,12 @@ SHEET_COLUMNS = [
     ("month_1_alpha",     "1月超额",     10),
     ("month_6_alpha",     "6月超额",     10),
     ("year_1_alpha",      "年化超额",    10),
+    # 超额风险指标（03 Step 3.5 计算）
+    ("excess_annual_return",  "超额年化收益", 12),
+    ("tracking_error",        "跟踪误差",     10),
+    ("information_ratio",     "信息比率IR",   10),
+    ("excess_max_drawdown",   "超额最大回撤", 12),
+    ("excess_calmar",         "超额Calmar",  10),
     # 研究解读
     ("profile",           "基金画像",    14),
     ("tags",              "研究标签",    36),
@@ -39,9 +45,16 @@ SHEET_COLUMNS = [
 ]
 
 # 百分比格式的列
-PCT_COLS = {"年化收益", "年化波动率", "最大回撤", "年化超额", "6月超额", "1月超额"}
+PCT_COLS = {
+    "年化收益", "年化波动率", "最大回撤",
+    "年化超额", "6月超额", "1月超额",
+    "超额年化收益", "跟踪误差", "超额最大回撤",
+}
 # 数值格式的列（保留 2 位小数）
-NUM_COLS = {"Sharpe", "Calmar"}
+NUM_COLS = {
+    "Sharpe", "Calmar",
+    "信息比率IR", "超额Calmar",
+}
 
 
 def export_excel(df: pd.DataFrame, output_path: str):
@@ -179,6 +192,8 @@ def export_excel(df: pd.DataFrame, output_path: str):
                 "观察样本": pc.get("观察样本", 0),
                 "平均Sharpe": round(g["sharpe_ratio"].dropna().mean(), 2) if "sharpe_ratio" in g.columns else None,
                 "平均Calmar": round(g["calmar_ratio"].dropna().mean(), 2) if "calmar_ratio" in g.columns else None,
+                "平均IR": round(g["information_ratio"].dropna().mean(), 2) if "information_ratio" in g.columns else None,
+                "IR>1.0占比": round((g["information_ratio"].dropna() > 1.0).mean() * 100, 1) if "information_ratio" in g.columns else None,
             })
 
         sdf = pd.DataFrame(summary_rows)
