@@ -110,25 +110,26 @@ def load_and_analyze():
     # 全量加载（不再限制列，让各子表自行筛选可用列）
     df = excess.copy()
 
-    # launch_date / scale from cache
-    cache_path = os.path.join(os.path.dirname(EXCESS_RETURN_PATH), "..", "fund_detail_cache.parquet")
-    cache_path = os.path.normpath(cache_path)
-    if os.path.exists(cache_path):
-        cache = pd.read_parquet(cache_path)
-        if "launch_date" in cache.columns:
-            lm = {}
-            for _, r in cache.iterrows():
-                ld = r["launch_date"]
-                if pd.notna(ld) and str(ld) not in ("", "nan", "None"):
-                    lm[str(r["fund_code"]).zfill(6)] = str(ld)
-            df["launch_date"] = df["fund_code"].map(lm)
-        if "scale" in cache.columns:
-            sm = {}
-            for _, r in cache.iterrows():
-                sc = r["scale"]
-                if pd.notna(sc) and str(sc) not in ("", "nan", "None"):
-                    sm[str(r["fund_code"]).zfill(6)] = str(sc)
-            df["scale"] = df["fund_code"].map(sm)
+    # launch_date / scale from whitelist Excel
+    xls_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "data", "fund_whitelist.xlsx")
+    xls_path = os.path.normpath(xls_path)
+    if os.path.exists(xls_path):
+        launch_map = {}
+        scale_map = {}
+        for sheet in pd.ExcelFile(xls_path).sheet_names:
+            sdf = pd.read_excel(xls_path, sheet_name=sheet, dtype=str)
+            if sdf.shape[1] >= 3:
+                for _, r in sdf.iterrows():
+                    code = str(r.iloc[0]).strip().replace(".OF", "").zfill(6)
+                    ld = str(r.iloc[2]) if pd.notna(r.iloc[2]) and str(r.iloc[2]) not in ("nan", "获取失败") else None
+                    sc = str(r.iloc[3]) if sdf.shape[1] >= 4 and pd.notna(r.iloc[3]) and str(r.iloc[3]) not in ("nan", "获取失败") else None
+                    if ld:
+                        launch_map[code] = ld
+                    if sc:
+                        scale_map[code] = sc
+        df["launch_date"] = df["fund_code"].map(launch_map)
+        df["scale"] = df["fund_code"].map(scale_map)
 
     # 过滤：至少有一个周期的 Alpha 数据
     alpha_cols = ["year_1_alpha", "month_6_alpha", "month_1_alpha"]

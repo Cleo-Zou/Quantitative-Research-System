@@ -279,8 +279,8 @@ def enrich_and_verify(fund_pool: pd.DataFrame) -> pd.DataFrame:
             eta = (elapsed / i) * (total - i)
             pct = (i + 1) / total * 100
             print(f"\r  [{i + 1:>4}/{total} {pct:>4.0f}%]  "
-                  f"✓{len(enriched):>4}  ✗{len(api_failed):>3}  "
-                  f"剩余≈{eta:.0f}s  {code} {name[:20]}",
+                  f"OK{len(enriched):>4}  FAIL{len(api_failed):>3}  "
+                  f"ETA{eta:.0f}s  {code} {name[:20]}",
                   end="", flush=True)
 
         # 调用 API
@@ -328,6 +328,12 @@ def enrich_and_verify(fund_pool: pd.DataFrame) -> pd.DataFrame:
     print(f"  API 成功: {len(enriched) - len(api_failed)}")
     print(f"  API 失败: {len(api_failed)}")
     print(f"  基准校验未通过: {len(warnings)}")
+
+    # 保存 API 失败记录
+    if api_failed:
+        api_fail_path = os.path.join(DATA_DIR, "api_failed.csv")
+        pd.DataFrame({"fund_code": api_failed}).to_csv(api_fail_path, index=False, encoding="utf-8-sig")
+        print(f"  API 失败记录: {api_fail_path} ({len(api_failed)} 只)")
 
     # 保存校验报告
     if warnings:
@@ -381,6 +387,72 @@ def save_fund_master(df: pd.DataFrame):
 
 
 # ═══════════════════════════════════════════════════════════
+#  回写 Excel（API 结果填充到表格）
+# ═══════════════════════════════════════════════════════════
+
+SHEET_BM_MAP_REV = {v: k for k, v in SHEET_BM_MAP.items()}
+
+
+def _write_back_to_excel(df: pd.DataFrame):
+    """把 launch_date / scale 写回 Excel 对应的 Sheet。API 失败的填'获取失败'。"""
+    from openpyxl import load_workbook
+    from openpyxl.styles import PatternFill
+
+    print("\n" + "=" * 60)
+    print("Step 3.5  回写 Excel（填充成立时间 + 规模）")
+    print("=" * 60)
+
+    wb = load_workbook(WHITELIST_EXCEL)
+    yellow_fill = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
+    filled_ok = 0
+    filled_fail = 0
+
+    for sheet_name in wb.sheetnames:
+        if sheet_name not in SHEET_BM_MAP:
+            continue
+        ws = wb[sheet_name]
+        bm = SHEET_BM_MAP[sheet_name]
+
+        # 确保第 3、4 列是成立时间和规模的表头
+        ws.cell(row=1, column=3, value="上市日期" if ws.cell(row=1, column=3).value is None else ws.cell(row=1, column=3).value)
+        ws.cell(row=1, column=4, value="规模" if ws.cell(row=1, column=4).value is None else ws.cell(row=1, column=4).value)
+
+        for row_idx in range(2, ws.max_row + 1):
+            code = str(ws.cell(row=row_idx, column=1).value or "").strip().replace(".OF", "").zfill(6)
+            if not code:
+                continue
+
+            match = df[(df["fund_code"] == code) & (df["benchmark_index"] == bm)]
+            if match.empty:
+                continue
+
+            row_data = match.iloc[0]
+            launch = row_data.get("launch_date", "")
+            scale = row_data.get("scale", "")
+            api_ok = row_data.get("api_status", "") == "success"
+
+            if api_ok and launch:
+                ws.cell(row=row_idx, column=3).value = launch
+                ws.cell(row=row_idx, column=4).value = scale if scale else ""
+                filled_ok += 1
+            else:
+                ws.cell(row=row_idx, column=3).value = "获取失败"
+                ws.cell(row=row_idx, column=4).value = "获取失败"
+                for ci in [3, 4]:
+                    ws.cell(row=row_idx, column=ci).fill = yellow_fill
+                filled_fail += 1
+
+    # 始终保存 ASCII 版本（CI 兼容），同步中文版（如有）
+    wb.save(_WHITELIST_ASCII)
+    if os.path.exists(_WHITELIST_CN):
+        wb.save(_WHITELIST_CN)
+    print(f"  填充成功: {filled_ok} 只")
+    print(f"  获取失败（标黄）: {filled_fail} 只（请手动查询后填入，去除标黄）")
+    print(f"  已保存: {_WHITELIST_ASCII}"
+          + (f" + {os.path.basename(_WHITELIST_CN)}" if os.path.exists(_WHITELIST_CN) else ""))
+
+
+# ═══════════════════════════════════════════════════════════
 #  主入口
 # ═══════════════════════════════════════════════════════════
 
@@ -404,6 +476,9 @@ def main():
 
     # 3. 保存
     save_fund_master(fund_master)
+
+    # 3.5 回写 Excel
+    _write_back_to_excel(fund_master)
 
     print("\n" + "█" * 60)
     print(f"[OK] 基金池构建完成: {len(fund_master)} 只")
