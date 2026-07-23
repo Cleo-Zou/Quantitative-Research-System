@@ -194,6 +194,9 @@ def _calculate_performance(
 
     # ── 中长期：复权净值 ──
     if adj_values and latest_adj is not None:
+        result["day_20_change"] = _change(
+            latest_date - timedelta(days=28), adj_values, latest_adj
+        )
         result["month_1_change"] = _change(
             _subtract_months(latest_date, 1), adj_values, latest_adj
         )
@@ -232,6 +235,7 @@ def _calculate_performance(
             result["since_launch_change"] = None
     else:
         for key in [
+            "day_20_change",
             "month_1_change", "month_3_change", "month_6_change",
             "ytd_change", "year_1_change", "year_3_change", "year_5_change",
             "since_launch_change",
@@ -564,14 +568,14 @@ def calculate_index_performance() -> pd.DataFrame:
 
 # 基金与指数共有的涨跌幅字段（不含 since_launch）
 _PERF_FIELDS = [
-    "daily_change", "week_change",
+    "daily_change", "week_change", "day_20_change",
     "month_1_change", "month_3_change", "month_6_change",
     "ytd_change",
     "year_1_change", "year_3_change", "year_5_change",
 ]
 
 _EXCESS_FIELDS = [
-    "daily_excess", "week_excess",
+    "daily_excess", "week_excess", "day_20_excess",
     "month_1_excess", "month_3_excess", "month_6_excess",
     "ytd_excess",
     "year_1_excess", "year_3_excess", "year_5_excess",
@@ -581,6 +585,7 @@ _EXCESS_FIELDS = [
 _PERIOD_YEARS_FIXED: dict[str, float] = {
     "daily_change": 1 / 252,       # ~1 个交易日
     "week_change": 5 / 252,        # ~5 个交易日
+    "day_20_change": 20 / 252,     # ~20 个交易日
     "month_1_change": 1 / 12,
     "month_3_change": 3 / 12,
     "month_6_change": 6 / 12,
@@ -652,9 +657,10 @@ def calculate_excess_performance(
         # 指数涨跌幅映射
         idx_map = index_perf.set_index("index_code")[perf_field].to_dict()
 
-        # 总超额
+        # 总超额 = 基金收益 - 0.95 × 基准收益
+        # 指数增强基金仓位上限 95%，用 0.95 系数还原真实超额能力
         merged[excess_field] = (
-            merged[perf_field] - merged["benchmark_index"].map(idx_map)
+            merged[perf_field] - 0.95 * merged["benchmark_index"].map(idx_map)
         )
 
         # 纯增强 Alpha = 总超额 - 股息复利修正
@@ -755,14 +761,14 @@ def save_results(
 
         # 表头: 收益 + 股息率 + 超额 + Alpha
         short_perf = [
-            ("日", "daily_change"), ("周", "week_change"),
+            ("日", "daily_change"), ("周", "week_change"), ("20日", "day_20_change"),
             ("1月", "month_1_change"), ("3月", "month_3_change"),
             ("6月", "month_6_change"), ("YTD", "ytd_change"),
             ("1年", "year_1_change"), ("3年", "year_3_change"),
             ("5年", "year_5_change"),
         ]
         short_alpha = [
-            ("日α", "daily_alpha"), ("周α", "week_alpha"),
+            ("日α", "daily_alpha"), ("周α", "week_alpha"), ("20日α", "day_20_alpha"),
             ("1月α", "month_1_alpha"), ("3月α", "month_3_alpha"),
             ("6月α", "month_6_alpha"), ("YTDα", "ytd_alpha"),
             ("1年α", "year_1_alpha"), ("3年α", "year_3_alpha"),
