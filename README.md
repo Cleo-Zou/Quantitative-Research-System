@@ -41,6 +41,10 @@ The `副本全市场量化指数基金.xlsx` Excel (4 sheets = 4 benchmarks) is 
 
 **Excess Return:** $\alpha_t = R_t^{fund} - 0.95 \times R_t^{benchmark}$ (0.95 coefficient accounts for the 95% equity position limit of enhanced index funds)
 
+**Data Architecture:** Excel whitelist (`data/fund_whitelist.xlsx`, 4 sheets = 4 benchmarks, 227 funds) is the single source of truth for fund pool membership, launch dates, and latest scale. 04/06 read directly from Excel instead of API cache.
+
+**CI Flow:** Daily cron runs 02→03→04→05→06. Step 01 (fund pool build) is skipped — only runs manually when the Excel whitelist changes.
+
 ```
                           AKShare / EastMoney
                                 │
