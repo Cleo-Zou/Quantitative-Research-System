@@ -111,7 +111,7 @@ def load_and_analyze():
     df = excess.copy()
 
     # launch_date / scale from whitelist Excel
-    xls_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    xls_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "data", "fund_whitelist.xlsx")
     xls_path = os.path.normpath(xls_path)
     if os.path.exists(xls_path):

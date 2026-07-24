@@ -81,7 +81,7 @@ def load_data():
     print(f"读取基金数据: {len(df)} 条")
 
     # 加载成立时间 / 成立规模（从白名单 Excel）
-    xls_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    xls_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "data", "fund_whitelist.xlsx")
     xls_path = os.path.normpath(xls_path)
     if os.path.exists(xls_path):
