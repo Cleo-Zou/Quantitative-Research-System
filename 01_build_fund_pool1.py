@@ -446,9 +446,11 @@ def _write_back_to_excel(df: pd.DataFrame):
                 ws.cell(row=row_idx, column=3).fill = yellow_fill
                 filled_fail += 1
 
-            # 规模：API 数据不准，统一标黄待手动填入
-            ws.cell(row=row_idx, column=4).value = "待补充"
-            ws.cell(row=row_idx, column=4).fill = yellow_fill
+            # 规模：只在空白/失败/待补充时才标黄，已有数据的不覆盖
+            existing_scale = str(ws.cell(row=row_idx, column=4).value or "")
+            if existing_scale in ("", "None", "nan", "获取失败", "待补充"):
+                ws.cell(row=row_idx, column=4).value = "待补充"
+                ws.cell(row=row_idx, column=4).fill = yellow_fill
 
             if api_ok and launch:
                 filled_ok += 1
