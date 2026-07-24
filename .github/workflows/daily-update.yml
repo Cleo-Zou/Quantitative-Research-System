@@ -49,9 +49,9 @@ jobs:
           restore-keys: |
             fund-data-v3-${{ runner.os }}-
 
-      - name: 01 更新基金池
-        run: python 01_build_fund_pool1.py
-        continue-on-error: true
+      # 01 仅在白名单 Excel 变动时手动运行（日常跳过）
+      # - name: 01 更新基金池
+      #   run: python 01_build_fund_pool1.py
 
       - name: 02 获取最新净值
         run: python 02_update_nav.py
