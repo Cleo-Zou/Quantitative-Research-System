@@ -122,7 +122,8 @@ def load_and_analyze():
             if sdf.shape[1] >= 3:
                 for _, r in sdf.iterrows():
                     code = str(r.iloc[0]).strip().replace(".OF", "").zfill(6)
-                    ld = str(r.iloc[2]) if pd.notna(r.iloc[2]) and str(r.iloc[2]) not in ("nan", "获取失败") else None
+                    ld_raw = str(r.iloc[2]) if pd.notna(r.iloc[2]) and str(r.iloc[2]) not in ("nan", "获取失败") else None
+                    ld = ld_raw[:10] if ld_raw and len(ld_raw) >= 10 else ld_raw  # 截掉 00:00:00
                     sc = str(r.iloc[3]) if sdf.shape[1] >= 4 and pd.notna(r.iloc[3]) and str(r.iloc[3]) not in ("nan", "获取失败") else None
                     if ld:
                         launch_map[code] = ld
