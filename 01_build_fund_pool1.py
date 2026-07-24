@@ -286,9 +286,16 @@ def enrich_and_verify(fund_pool: pd.DataFrame) -> pd.DataFrame:
         # 调用 API
         detail = _fetch_fund_detail(code, cache)
 
+        # 提取份额类别
+        share_class = ""
+        m = __import__('re').search(r"([ABCDEYI])$", name)
+        if m:
+            share_class = m.group(1)
+
         entry = {
             "fund_code": code,
             "fund_name": name,
+            "share_class": share_class,
             "benchmark_index": expected_bm,
             "benchmark_name": INDEX_NAMES.get(expected_bm, expected_bm),
             "fund_company": detail.get("fund_company", "") if detail else "",
@@ -431,16 +438,20 @@ def _write_back_to_excel(df: pd.DataFrame):
             scale = row_data.get("scale", "")
             api_ok = row_data.get("api_status", "") == "success"
 
+            # 成立时间：API 数据可信（不变），失败则标黄
             if api_ok and launch:
                 ws.cell(row=row_idx, column=3).value = launch
-                ws.cell(row=row_idx, column=4).value = scale if scale else ""
-                filled_ok += 1
             else:
                 ws.cell(row=row_idx, column=3).value = "获取失败"
-                ws.cell(row=row_idx, column=4).value = "获取失败"
-                for ci in [3, 4]:
-                    ws.cell(row=row_idx, column=ci).fill = yellow_fill
+                ws.cell(row=row_idx, column=3).fill = yellow_fill
                 filled_fail += 1
+
+            # 规模：API 数据不准，统一标黄待手动填入
+            ws.cell(row=row_idx, column=4).value = "待补充"
+            ws.cell(row=row_idx, column=4).fill = yellow_fill
+
+            if api_ok and launch:
+                filled_ok += 1
 
     # 始终保存 ASCII 版本（CI 兼容），同步中文版（如有）
     wb.save(_WHITELIST_ASCII)

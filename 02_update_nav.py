@@ -184,7 +184,7 @@ def update_all_nav(fund_codes: list[str]) -> dict:
 
         print(
             f"\r  [{i + 1:>4}/{total} {pct:>4.0f}%]  "
-            f"✓{len(ok_list):>4}  ✗{len(fail_list):>3}  "
+            f"OK{len(ok_list):>4}  FAIL{len(fail_list):>3}  "
             f"剩余≈{eta:<8s}  "
             f"{code} {tag}",
             end="", flush=True,
