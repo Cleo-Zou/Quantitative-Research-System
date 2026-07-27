@@ -114,10 +114,10 @@ COLUMN_LABELS = {
     "launch_date": "成立时间",
     "scale": "成立规模",
     "daily_change": "日涨跌幅",
-    "day_20_change": "20日涨跌幅",
+    "day_20_change": "20交易日涨跌幅",
     "ytd_change": "YTD",
     "daily_excess": "日超额",
-    "day_20_excess": "20日超额",
+    "day_20_excess": "20交易日超额",
     "ytd_excess": "YTD超额",
 }
 
@@ -261,10 +261,9 @@ def build_chart_data(df: pd.DataFrame) -> dict:
 #  表格准备 & HTML 生成
 # ═══════════════════════════════════════════════════════════
 
-def prepare_table(df):
-    """筛选最新日期、排序、格式化（空值标注原因）"""
-    latest = df["date"].max()
-    df = df[df["date"] == latest].copy()
+def prepare_table_for_date(df, target_date):
+    """筛选指定日期、排序、格式化（空值标注原因）"""
+    df = df[df["date"] == target_date].copy()
     df = df.sort_values("fund_code", ascending=True)
 
     columns = [
@@ -286,20 +285,16 @@ def prepare_table(df):
             df[c] = df.apply(lambda row: _format_cell(row[c], c, row), axis=1)
 
     df = df[[c for c in columns if c in df.columns]]
-    return df, latest
+    return df
 
 
-def generate_html(df, latest_date, chart_data: dict):
+def generate_html(all_tables: dict, dates: list, chart_data: dict):
+    """all_tables: {date_str: {bm: formatted_df, ...}, ...}  dates: 降序日期列表"""
     os.makedirs(os.path.dirname(OUTPUT_HTML), exist_ok=True)
 
+    latest_date = dates[0]
     date_str = str(latest_date)
     labels = COLUMN_LABELS.copy()
-
-    display_df = df.rename(columns=labels)
-    # 不展示 benchmark_index 原始列
-    if "benchmark_index" in display_df.columns:
-        display_df = display_df.drop(columns=["benchmark_index"])
-
     benchmarks = ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]
 
     # ── 辅助：为单个 group 生成 <table> HTML ──
@@ -320,31 +315,38 @@ def generate_html(df, latest_date, chart_data: dict):
             has_chart = "true" if code in chart_data else "false"
             return f'<tr data-code="{code}" data-chart="{has_chart}" class="{"clickable" if has_chart else ""}" style="cursor:{"pointer" if has_chart else "default"}">'
 
+        # 只在 <tbody> 内的 <tr> 上注入属性，跳过 <thead>
         parts = table_html.split("<tbody>")
         if len(parts) == 2:
-            before_tbody = parts[0]
-            after_tbody = parts[1]
             idx = 0
-            after_tbody = re.sub(r"<tr>", add_data_code, after_tbody)
-        else:
-            before_tbody = table_html
-            after_tbody = ""
+            after_tbody = re.sub(r"<tr>", add_data_code, parts[1])
+            return parts[0] + "<tbody>" + after_tbody
+        return table_html
 
-        idx = 0
-        after_tbody = re.sub(r"<tr>", add_data_code, after_tbody)
-        return before_tbody + "<tbody>" + after_tbody
+    # ── 为所有日期预建表格 HTML（供日期切换使用） ──
+    date_tables_json: dict[str, dict] = {}
+    for d_str, date_df in all_tables.items():
+        date_display = date_df.rename(columns=labels)
+        if "benchmark_index" in date_display.columns:
+            date_display = date_display.drop(columns=["benchmark_index"])
+        bm_tables = {}
+        for bm in benchmarks:
+            g_df = date_df[date_df["benchmark_index"] == bm]
+            if g_df.empty:
+                continue
+            g_df = g_df.sort_values("fund_code")
+            g_display = date_display.loc[g_df.index]
+            bm_tables[bm] = _build_group_table(g_df, g_display)
+        date_tables_json[d_str] = bm_tables
 
-    # ── 构建各组表格 ──
-    tables = {}
-    counts = {}
-    for bm in benchmarks:
-        g_df = df[df["benchmark_index"] == bm]
-        if g_df.empty:
-            continue
-        g_df = g_df.sort_values("fund_code")
-        g_display = display_df.loc[g_df.index]
-        tables[bm] = _build_group_table(g_df, g_display)
-        counts[bm] = len(g_df)
+    # ── 初始显示：最新日期 ──
+    tables = date_tables_json.get(date_str, {})
+    initial_display = all_tables[date_str].rename(columns=labels)
+    if "benchmark_index" in initial_display.columns:
+        initial_display = initial_display.drop(columns=["benchmark_index"])
+    display_df = initial_display
+    counts = {bm: len(all_tables[date_str][all_tables[date_str]["benchmark_index"] == bm])
+              for bm in benchmarks if bm in tables}
 
     # ── 统计空值（用新字段名） ──
     empty_counts = {}
@@ -363,7 +365,15 @@ def generate_html(df, latest_date, chart_data: dict):
     if empty_counts:
         empty_note = '<div class="footnote"><p>说明：部分基金因成立时间不足，对应周期涨跌幅/超额为空，已在格内标注原因（如"成立不足1年"）。点击基金行可查看近 90 日累计收益走势图。</p></div>'
 
+    # ── 日期下拉选项 ──
+    date_options = "\n".join(
+        f'<option value="{d}" {"selected" if d == date_str else ""}>{d}</option>'
+        for d in dates
+    )
+
     chart_json_str = json.dumps(chart_data, ensure_ascii=False)
+    date_tables_str = json.dumps(date_tables_json, ensure_ascii=False)
+    dates_str = json.dumps(dates, ensure_ascii=False)
 
     # ── 构造 Tab 按钮 ──
     tab_btns = []
@@ -496,7 +506,11 @@ def generate_html(df, latest_date, chart_data: dict):
 
 <div class="header">
     <h1>沪深300 · 中证500 · 中证1000 · 中证全指 指数增强基金</h1>
-    <span class="meta">数据日期: {date_str} &nbsp;|&nbsp; 共 {len(display_df)} 只基金 &nbsp;|&nbsp;
+    <span class="meta">数据日期:
+      <select id="date-selector" style="font-family:inherit;font-size:13px;background:#1a2e3d;color:#e8ecf1;border:1px solid #253d50;border-radius:4px;padding:2px 8px;cursor:pointer;">
+{date_options}
+      </select>
+      &nbsp;|&nbsp; 共 <span id="fund-count">{len(display_df)}</span> 只基金 &nbsp;|&nbsp;
       {", ".join(f"{INDEX_NAMES.get(bm, bm)} {counts.get(bm, 0)}只" for bm in benchmarks if bm in tables)}</span>
 </div>
 
@@ -524,6 +538,146 @@ def generate_html(df, latest_date, chart_data: dict):
 <script>
 // ── 折线图数据 ──
 var CHART_DATA = {chart_json_str};
+// ── 日期切换数据 ──
+var DATE_TABLES = {date_tables_str};
+var ALL_DATES = {dates_str};
+
+// ── 日期切换 ──
+(function() {{
+    var sel = document.getElementById('date-selector');
+    if (sel) {{
+        sel.addEventListener('change', function() {{
+            var date = this.value;
+            var tables = DATE_TABLES[date];
+            if (!tables) return;
+
+            ['HS300', 'ZZ500', 'ZZ1000', 'CSI_ALL'].forEach(function(bm) {{
+                var wrapper = document.getElementById('table-' + bm);
+                if (!wrapper) return;
+                if (tables[bm]) {{
+                    wrapper.innerHTML = tables[bm];
+                }} else {{
+                    wrapper.innerHTML = '<div style="padding:24px;text-align:center;color:#5a6f80;">该日期无' + bm + '数据</div>';
+                }}
+            }});
+
+            // 更新基金数量
+            var total = 0;
+            Object.keys(tables).forEach(function(bm) {{
+                var wrapper = document.getElementById('table-' + bm);
+                if (wrapper) {{
+                    var rows = wrapper.querySelectorAll('tbody tr');
+                    total += rows.length;
+                }}
+            }});
+            document.getElementById('fund-count').textContent = total;
+
+            // 重新绑定事件
+            initTableEvents();
+        }});
+    }}
+}})();
+
+// ── 统一初始化表格事件 ──
+function initTableEvents() {{
+    // 行点击 → 图表弹窗
+    document.querySelectorAll('tr[data-chart="true"]').forEach(function(tr) {{
+        if (tr._chartBound) return;
+        tr._chartBound = true;
+        tr.addEventListener('click', function() {{
+            var code = this.getAttribute('data-code');
+            var nameCell = this.querySelector('td:nth-child(2)');
+            var name = nameCell ? nameCell.textContent.trim() : code;
+            openModal(code, name);
+        }});
+    }});
+
+    // 排序功能绑定
+    document.querySelectorAll('.fund-table').forEach(function(table) {{
+        if (table._sortBound) return;
+        table._sortBound = true;
+        bindTableSort(table);
+    }});
+}}
+
+function bindTableSort(table) {{
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var headers = table.querySelectorAll('th');
+    var sortState = {{}};
+
+    headers.forEach(function(th, colIdx) {{
+        if (colIdx < 3) return;
+
+        th.classList.add('sortable');
+        var btns = document.createElement('span');
+        btns.className = 'sort-btns';
+        btns.innerHTML = '<span class="sort-btn sort-asc">&#9650;</span><span class="sort-btn sort-desc">&#9660;</span>';
+        th.appendChild(document.createTextNode(' '));
+        th.appendChild(btns);
+
+        var ascBtn = btns.querySelector('.sort-asc');
+        var descBtn = btns.querySelector('.sort-desc');
+
+        ascBtn.addEventListener('click', function(e) {{
+            e.stopPropagation();
+            Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
+            resetAllArrows(table);
+            sortState[colIdx] = 'asc';
+            ascBtn.classList.add('active');
+            sortTable(table, colIdx, 'asc');
+        }});
+
+        descBtn.addEventListener('click', function(e) {{
+            e.stopPropagation();
+            Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
+            resetAllArrows(table);
+            sortState[colIdx] = 'desc';
+            descBtn.classList.add('active');
+            sortTable(table, colIdx, 'desc');
+        }});
+
+        th.addEventListener('click', function() {{
+            Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
+            resetAllArrows(table);
+            sortTable(table, 0, null);
+        }});
+    }});
+
+    function resetAllArrows(tbl) {{
+        tbl.querySelectorAll('.sort-btn').forEach(function(b) {{ b.classList.remove('active'); }});
+    }}
+
+    function parseCellValue(td) {{
+        var span = td.querySelector('span');
+        var text = span ? span.textContent.trim() : td.textContent.trim();
+        var pctMatch = text.match(/^([+-]?\\d+\\.?\\d*)%?$/);
+        if (pctMatch) return parseFloat(pctMatch[1]);
+        if (text && !text.match(/^[+-]?\\d/)) return -Infinity;
+        var num = parseFloat(text);
+        return isNaN(num) ? -Infinity : num;
+    }}
+
+    function sortTable(tbl, colIdx, dir) {{
+        var tb = tbl.querySelector('tbody');
+        var rows = Array.from(tb.querySelectorAll('tr'));
+        if (!dir) {{
+            rows.sort(function(a, b) {{
+                var aCode = a.querySelector('td:first-child').textContent.trim();
+                var bCode = b.querySelector('td:first-child').textContent.trim();
+                return aCode.localeCompare(bCode);
+            }});
+        }} else {{
+            rows.sort(function(a, b) {{
+                var aVal = parseCellValue(a.querySelectorAll('td')[colIdx]);
+                var bVal = parseCellValue(b.querySelectorAll('td')[colIdx]);
+                if (dir === 'asc') return aVal - bVal;
+                return bVal - aVal;
+            }});
+        }}
+        rows.forEach(function(r) {{ tb.appendChild(r); }});
+    }}
+}}
 
 // ── ECharts 实例 ──
 var chartDom = document.getElementById('chart-container');
@@ -625,14 +779,8 @@ document.addEventListener('keydown', function(e) {{
     if (e.key === 'Escape') closeModal();
 }});
 
-// ── 表格行点击 ──
-document.querySelectorAll('tr[data-chart="true"]').forEach(function(tr) {{
-    tr.addEventListener('click', function() {{
-        var code = this.getAttribute('data-code');
-        var name = this.querySelector('td:nth-child(2)').textContent.trim();
-        openModal(code, name);
-    }});
-}});
+// ── 初始化表格事件 ──
+initTableEvents();
 
 // ── 窗口缩放时重绘 ──
 window.addEventListener('resize', function() {{
@@ -651,87 +799,6 @@ window.addEventListener('resize', function() {{
             document.getElementById('table-' + tab).classList.add('active');
         }});
     }});
-}})();
-
-// ── 表格排序（每张表独立） ──
-(function() {{
-    document.querySelectorAll('.fund-table').forEach(function(table) {{
-        var tbody = table.querySelector('tbody');
-        var headers = table.querySelectorAll('th');
-        var sortState = {{}};
-
-        headers.forEach(function(th, colIdx) {{
-            if (colIdx < 3) return; // 跳过代码、简称、指数
-
-            th.classList.add('sortable');
-            var btns = document.createElement('span');
-            btns.className = 'sort-btns';
-            btns.innerHTML = '<span class="sort-btn sort-asc">&#9650;</span><span class="sort-btn sort-desc">&#9660;</span>';
-            th.appendChild(document.createTextNode(' '));
-            th.appendChild(btns);
-
-            var ascBtn = btns.querySelector('.sort-asc');
-            var descBtn = btns.querySelector('.sort-desc');
-
-            ascBtn.addEventListener('click', function(e) {{
-                e.stopPropagation();
-                Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
-                resetAllArrows(table);
-                sortState[colIdx] = 'asc';
-                ascBtn.classList.add('active');
-                sortTable(table, colIdx, 'asc');
-            }});
-
-            descBtn.addEventListener('click', function(e) {{
-                e.stopPropagation();
-                Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
-                resetAllArrows(table);
-                sortState[colIdx] = 'desc';
-                descBtn.classList.add('active');
-                sortTable(table, colIdx, 'desc');
-            }});
-
-            th.addEventListener('click', function(e) {{
-                Object.keys(sortState).forEach(function(k) {{ sortState[k] = null; }});
-                resetAllArrows(table);
-                sortTable(table, 0, null);
-            }});
-        }});
-    }});
-
-    function resetAllArrows(table) {{
-        table.querySelectorAll('.sort-btn').forEach(function(b) {{ b.classList.remove('active'); }});
-    }}
-
-    function parseCellValue(td) {{
-        var span = td.querySelector('span');
-        var text = span ? span.textContent.trim() : td.textContent.trim();
-        var pctMatch = text.match(/^([+-]?\\d+\\.?\\d*)%?$/);
-        if (pctMatch) return parseFloat(pctMatch[1]);
-        if (text && !text.match(/^[+-]?\\d/)) return -Infinity;
-        var num = parseFloat(text);
-        return isNaN(num) ? -Infinity : num;
-    }}
-
-    function sortTable(table, colIdx, dir) {{
-        var tbody = table.querySelector('tbody');
-        var rows = Array.from(tbody.querySelectorAll('tr'));
-        if (!dir) {{
-            rows.sort(function(a, b) {{
-                var aCode = a.querySelector('td:first-child').textContent.trim();
-                var bCode = b.querySelector('td:first-child').textContent.trim();
-                return aCode.localeCompare(bCode);
-            }});
-        }} else {{
-            rows.sort(function(a, b) {{
-                var aVal = parseCellValue(a.querySelectorAll('td')[colIdx]);
-                var bVal = parseCellValue(b.querySelectorAll('td')[colIdx]);
-                if (dir === 'asc') return aVal - bVal;
-                return bVal - aVal;
-            }});
-        }}
-        rows.forEach(function(r) {{ tbody.appendChild(r); }});
-    }}
 }})();
 </script>
 </body>
@@ -759,12 +826,23 @@ def main():
     if df.empty:
         return
 
-    table, latest_date = prepare_table(df)
+    # ── 获取所有日期并预建格式化表格 ──
+    all_dates = sorted(df["date"].unique(), reverse=True)
+    all_tables = {}
+    for d in all_dates:
+        d_str = str(d)
+        try:
+            formatted = prepare_table_for_date(df, d)
+            all_tables[d_str] = formatted
+        except Exception as e:
+            print(f"  [WARN] 日期 {d_str} 数据处理失败: {e}")
+
+    print(f"共 {len(all_dates)} 个交易日: {all_dates[0]} ~ {all_dates[-1]}")
 
     # 构建折线图数据
     chart_data = build_chart_data(df)
 
-    generate_html(table, latest_date, chart_data)
+    generate_html(all_tables, all_dates, chart_data)
 
     print("\n完成!")
 
