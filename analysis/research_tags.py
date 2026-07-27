@@ -66,16 +66,16 @@ def determine_tags(df: pd.DataFrame) -> pd.DataFrame:
             if a1 > 0 and a6_val > 0 and a1m_val > 0:
                 tags.append("[持续跑赢]")
 
-            # Alpha 稳定: 相邻周期差异均 < TREND_TOLERANCE
-            if pd.notna(a6) and pd.notna(a1m):
-                diffs = [abs(a1 - a6), abs(a6 - a1m), abs(a1 - a1m)]
-                if max(diffs) < TREND_TOLERANCE:
+            # Alpha 稳定: 三个周期中至少两个 Alpha > 0（胜率法）
+            if pd.notna(a1):
+                alphas = [a for a in [a1, a6, a1m] if pd.notna(a)]
+                positive = sum(1 for a in alphas if a > 0)
+                if positive >= 2:
                     tags.append("[Alpha稳定]")
 
-            # 超额突出
-            if row.get("is_alpha_excellent", False):
-                tags.append("[超额突出]")
-            elif is_small and a1 > ALPHA_EXCELLENT_ABS:
+            # 超额突出: IR ≥ 1.0（单位主动风险换取 1 单位以上超额）
+            ir = row.get("information_ratio")
+            if pd.notna(ir) and ir >= 1.0:
                 tags.append("[超额突出]")
 
             # 短期改善
