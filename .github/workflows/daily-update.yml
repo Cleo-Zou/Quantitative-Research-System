@@ -88,33 +88,39 @@ jobs:
 
           nav_latest = max(latest_dates)
           today = date.today()
-          # 计算最近一个交易日（跳过周末）
-          if today.weekday() == 5:
-              last_biz = today - timedelta(days=1)
-          elif today.weekday() == 6:
-              last_biz = today - timedelta(days=2)
-          else:
-              last_biz = today
 
-          # 排除周一早上（周末没有新数据，last_biz 仍是周五）
-          # 如果今天是周一，允许 NAV 停留在上周五
-          diff = (last_biz - nav_latest).days
+          # 计算"应该已有净值"的最近交易日
+          # 净值在交易日当晚公布，所以今早运行时"今天"的净值可能还没出
+          # → 用昨天倒推，跳过周末
+          yesterday = today - timedelta(days=1)
+          expected = yesterday
+          while expected.weekday() >= 5:  # 周六(5)/周日(6) → 继续回退
+              expected = expected - timedelta(days=1)
+
+          # 计算交易日差距（跳过周末）
+          gap = 0
+          cur = expected
+          while cur > nav_latest:
+              gap += 1
+              cur = cur - timedelta(days=1)
+              while cur.weekday() >= 5:
+                  cur = cur - timedelta(days=1)
+
           print(f'NAV 最新日期: {nav_latest}')
-          print(f'最近交易日:   {last_biz}')
-          print(f'滞后天数:     {diff}')
+          print(f'应有净值日期: {expected}')
+          print(f'滞后交易日数: {gap}')
           print(f'有效文件数:   {len(latest_dates)}')
 
           if empty_files:
               print(f'[WARN] 空文件 ({len(empty_files)}): {empty_files[:5]}...')
 
-          if diff > 1:
-              print(f'[FATAL] NAV 数据滞后 {diff} 个交易日，拒绝继续')
+          if gap > 0:
+              print(f'[FATAL] NAV 滞后 {gap} 个交易日，拒绝继续')
+              print(f'  应有净值日期: {expected}，实际 NAV 最新: {nav_latest}')
               print(f'  可能原因: API 数据源未更新 / 大面积请求失败')
               sys.exit(1)
-          elif diff == 1:
-              print(f'[WARN] NAV 数据滞后 1 个交易日（可能在等净值公布），继续运行')
           else:
-              print('[OK] NAV 数据为最新交易日')
+              print('[OK] NAV 数据为最新可用交易日')
           "
 
       - name: 03 计算涨跌幅与超额
