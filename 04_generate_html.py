@@ -827,10 +827,10 @@ def main():
         return
 
     # ── 获取所有日期并预建格式化表格 ──
-    all_dates = sorted(df["date"].unique(), reverse=True)
+    all_dates = sorted([str(d) for d in df["date"].unique()], reverse=True)
     all_tables = {}
-    for d in all_dates:
-        d_str = str(d)
+    for d_str in all_dates:
+        d = pd.to_datetime(d_str).date()
         try:
             formatted = prepare_table_for_date(df, d)
             all_tables[d_str] = formatted
