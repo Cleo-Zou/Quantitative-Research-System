@@ -6,6 +6,11 @@ on:
     # 天天基金净值通常在当晚 18:00-22:00 陆续公布，次日清晨一定可用
     - cron: "0 23 * * 1-5"
   workflow_dispatch:
+    inputs:
+      backfill:
+        description: '回填全部历史日期数据（仅需运行一次）'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -124,7 +129,12 @@ jobs:
           "
 
       - name: 03 计算涨跌幅与超额
+        if: ${{ !inputs.backfill }}
         run: python 03_calculate_return.py
+
+      - name: 历史数据回填（仅手动触发，一次性）
+        if: ${{ inputs.backfill }}
+        run: python 03_backfill_history.py
 
       - name: 04 生成绩效 HTML
         run: python 04_generate_html.py
