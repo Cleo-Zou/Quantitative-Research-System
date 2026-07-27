@@ -42,9 +42,9 @@ jobs:
           path: |
             data/nav/
             data/index/
+            data/return/
             data/fund_master.parquet
             data/fund_detail_cache.parquet
-            data/fund_return.parquet
           key: fund-data-v3-${{ runner.os }}-${{ github.run_date }}
           restore-keys: |
             fund-data-v3-${{ runner.os }}-
@@ -55,7 +55,67 @@ jobs:
 
       - name: 02 获取最新净值
         run: python 02_update_nav.py
-        continue-on-error: true
+
+      - name: 校验 NAV 数据新鲜度
+        run: |
+          python -c "
+          import pandas as pd, os, sys
+          from datetime import date, timedelta
+          from pathlib import Path
+
+          nav_dir = Path('data/nav')
+          if not nav_dir.exists() or not list(nav_dir.glob('*.parquet')):
+              print('[FATAL] data/nav/ 目录为空，02 步骤可能完全失败')
+              sys.exit(1)
+
+          # 找到所有基金 NAV 文件中的最新日期
+          latest_dates = []
+          empty_files = []
+          for f in sorted(nav_dir.glob('*.parquet')):
+              try:
+                  df = pd.read_parquet(f)
+                  if df.empty or 'date' not in df.columns:
+                      empty_files.append(f.stem)
+                      continue
+                  df['date'] = pd.to_datetime(df['date']).dt.date
+                  latest_dates.append(df['date'].max())
+              except Exception as e:
+                  print(f'[WARN] 读取 {f.name} 失败: {e}')
+
+          if not latest_dates:
+              print('[FATAL] 所有 NAV 文件均为空或无法读取')
+              sys.exit(1)
+
+          nav_latest = max(latest_dates)
+          today = date.today()
+          # 计算最近一个交易日（跳过周末）
+          if today.weekday() == 5:
+              last_biz = today - timedelta(days=1)
+          elif today.weekday() == 6:
+              last_biz = today - timedelta(days=2)
+          else:
+              last_biz = today
+
+          # 排除周一早上（周末没有新数据，last_biz 仍是周五）
+          # 如果今天是周一，允许 NAV 停留在上周五
+          diff = (last_biz - nav_latest).days
+          print(f'NAV 最新日期: {nav_latest}')
+          print(f'最近交易日:   {last_biz}')
+          print(f'滞后天数:     {diff}')
+          print(f'有效文件数:   {len(latest_dates)}')
+
+          if empty_files:
+              print(f'[WARN] 空文件 ({len(empty_files)}): {empty_files[:5]}...')
+
+          if diff > 1:
+              print(f'[FATAL] NAV 数据滞后 {diff} 个交易日，拒绝继续')
+              print(f'  可能原因: API 数据源未更新 / 大面积请求失败')
+              sys.exit(1)
+          elif diff == 1:
+              print(f'[WARN] NAV 数据滞后 1 个交易日（可能在等净值公布），继续运行')
+          else:
+              print('[OK] NAV 数据为最新交易日')
+          "
 
       - name: 03 计算涨跌幅与超额
         run: python 03_calculate_return.py
@@ -72,6 +132,7 @@ jobs:
         continue-on-error: true
 
       - name: 验证数据日期
+        id: validate
         run: |
           python -c "
           import pandas as pd, os, sys
@@ -86,18 +147,21 @@ jobs:
           print(f'数据日期: {latest}')
           print(f'当前日期: {today}')
           diff = (today - latest).days
-          # 容忍 ≤3 自然日延迟（覆盖周末 & 1天节假日缓冲）
-          # 例如: 周五数据 → 周一 holiday → 周二 cron (UTC Mon) diff=3 → 仅警告
-          if diff > 3:
-              print(f'[FATAL] 数据延迟 {diff} 天（>3），拒绝部署陈旧数据')
+          # 容忍 ≤2 自然日延迟（覆盖周末 & 1天节假日缓冲）
+          # 例如: 周五数据 → 周一 cron diff=2 → 仅警告
+          if diff > 2:
+              print(f'[FATAL] 数据延迟 {diff} 天（>2），拒绝部署陈旧数据')
               print(f'  当前 UTC 日期: {today}')
               print(f'  最新数据日期: {latest}')
               print(f'  可能原因: API 数据源异常 / 长时间假期 / 上游流水线失败')
               sys.exit(1)
-          elif diff > 2:
+          elif diff > 1:
               print(f'[WARN] 数据延迟 {diff} 天（容忍范围内，继续部署）')
           else:
               print('[OK] 数据为近期数据')
+          # 输出版本日期供邮件使用
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'data_date={latest}\n')
           "
 
       - name: 配置 GitHub Pages
@@ -111,3 +175,27 @@ jobs:
       - name: 部署到 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: 发送更新通知邮件
+        if: success()
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.163.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: 📊 指数增强基金排名已更新 — ${{ steps.validate.outputs.data_date }}
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_USERNAME }}
+          html_body: |
+            <h2>📊 指数增强基金监控看板</h2>
+            <p><strong>数据日期：${{ steps.validate.outputs.data_date }}</strong></p>
+            <p><strong>更新时间：${{ github.event.repository.updated_at }}</strong></p>
+            <hr>
+            <p>👇 点击以下链接查看最新排名：</p>
+            <ul>
+              <li><a href="https://cleo-zou.github.io/Index_Enhancement_Monitor/">📈 绩效排名看板</a></li>
+              <li><a href="https://cleo-zou.github.io/Index_Enhancement_Monitor/research.html">🔬 研究分析看板</a></li>
+            </ul>
+            <hr>
+            <p style="color: #888; font-size: 12px;">由 GitHub Actions 自动发送 · <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">查看运行日志</a></p>
