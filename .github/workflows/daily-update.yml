@@ -213,8 +213,8 @@ jobs:
             <hr>
             <p>👇 点击以下链接查看最新排名：</p>
             <ul>
-              <li><a href="https://cleo-zou.github.io/Index_Enhancement_Monitor/">📈 绩效排名看板</a></li>
-              <li><a href="https://cleo-zou.github.io/Index_Enhancement_Monitor/research.html">🔬 研究分析看板</a></li>
+              <li><a href="https://cleo-zou.github.io/Quantitative-Research-System/">📈 绩效排名看板</a></li>
+              <li><a href="https://cleo-zou.github.io/Quantitative-Research-System/research.html">🔬 研究分析看板</a></li>
             </ul>
             <hr>
             <p style="color: #888; font-size: 12px;">由 GitHub Actions 自动发送 · <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">查看运行日志</a></p>
