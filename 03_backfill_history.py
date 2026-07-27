@@ -15,14 +15,6 @@ from config import (
     INDEX_NAMES,
 )
 from utils import safe_read_parquet, safe_write_parquet, format_seconds
-from _03_calculate_return_helpers import (
-    _calculate_performance,
-    calculate_index_performance,
-    calculate_excess_performance,
-)
-
-# 重新导入（避免相对导入问题）
-# 直接内联核心逻辑
 
 
 def load_all_nav_dates() -> set[date]:
