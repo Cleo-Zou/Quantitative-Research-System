@@ -905,26 +905,46 @@ def save_results(
     os.makedirs(RETURN_DIR, exist_ok=True)
 
     if not fund_perf.empty:
-        safe_write_parquet(fund_perf, FUND_RETURN_PATH)
+        existing = safe_read_parquet(FUND_RETURN_PATH)
+        if existing is not None and not existing.empty:
+            existing = existing[existing["date"] != fund_perf["date"].max()]
+            merged = pd.concat([existing, fund_perf], ignore_index=True)
+            print(f"  合并历史数据: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行")
+        else:
+            merged = fund_perf
+        safe_write_parquet(merged, FUND_RETURN_PATH)
         print(f"✓ 基金涨跌幅: {FUND_RETURN_PATH}")
-        print(f"  {len(fund_perf)} 只基金, 最新日期 {fund_perf['date'].max()}")
+        print(f"  {len(merged)} 行, {merged['date'].nunique()} 个交易日, 最新 {merged['date'].max()}")
     else:
         print("⚠ 基金数据为空，跳过")
 
     if not index_perf.empty:
-        safe_write_parquet(index_perf, INDEX_RETURN_PATH)
+        existing = safe_read_parquet(INDEX_RETURN_PATH)
+        if existing is not None and not existing.empty:
+            existing = existing[existing["date"] != index_perf["date"].max()]
+            merged = pd.concat([existing, index_perf], ignore_index=True)
+        else:
+            merged = index_perf
+        safe_write_parquet(merged, INDEX_RETURN_PATH)
         print(f"✓ 指数涨跌幅: {INDEX_RETURN_PATH}")
-        print(f"  {len(index_perf)} 个指数")
+        print(f"  {len(merged)} 行, {merged['date'].nunique()} 个交易日")
     else:
         print("⚠ 指数数据为空，跳过")
 
     if not excess_perf.empty:
-        safe_write_parquet(excess_perf, EXCESS_RETURN_PATH)
+        existing = safe_read_parquet(EXCESS_RETURN_PATH)
+        if existing is not None and not existing.empty:
+            existing = existing[existing["date"] != excess_perf["date"].max()]
+            merged = pd.concat([existing, excess_perf], ignore_index=True)
+            print(f"  合并历史数据: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行")
+        else:
+            merged = excess_perf
+        safe_write_parquet(merged, EXCESS_RETURN_PATH)
         print(f"✓ 超额收益 (Alpha): {EXCESS_RETURN_PATH}")
-        print(f"  {len(excess_perf)} 只基金")
+        print(f"  {len(merged)} 行, {merged['date'].nunique()} 个交易日")
 
-        latest = excess_perf["date"].max()
-        latest_df = excess_perf[excess_perf["date"] == latest]
+        latest = merged["date"].max()
+        latest_df = merged[merged["date"] == latest]
 
         print(f"\n{'─' * 140}")
         print(f"预览（最新日期: {latest}，前 12 行）:")
