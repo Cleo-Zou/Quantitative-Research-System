@@ -209,12 +209,11 @@ jobs:
           html_body: |
             <h2>📊 指数增强基金监控看板</h2>
             <p><strong>数据日期：${{ steps.validate.outputs.data_date }}</strong></p>
-            <p><strong>更新时间：${{ github.event.repository.updated_at }}</strong></p>
             <hr>
             <p>👇 点击以下链接查看最新排名：</p>
             <ul>
-              <li><a href="https://cleo-zou.github.io/Quantitative-Research-System/">📈 绩效排名看板</a></li>
-              <li><a href="https://cleo-zou.github.io/Quantitative-Research-System/research.html">🔬 研究分析看板</a></li>
+              <li><a href="${{ steps.deployment.outputs.page_url }}">📈 绩效排名看板</a></li>
+              <li><a href="${{ steps.deployment.outputs.page_url }}research.html">🔬 研究分析看板</a></li>
             </ul>
             <hr>
             <p style="color: #888; font-size: 12px;">由 GitHub Actions 自动发送 · <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">查看运行日志</a></p>
