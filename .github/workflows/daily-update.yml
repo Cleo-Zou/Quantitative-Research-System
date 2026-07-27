@@ -142,29 +142,42 @@ jobs:
         run: |
           python -c "
           import pandas as pd, os, sys
-          from datetime import datetime, timedelta
+          from datetime import date, timedelta
           path = 'data/return/excess_return.parquet'
           if not os.path.exists(path):
               print(f'[FATAL] {path} 不存在，数据流水线可能失败')
               sys.exit(1)
           df = pd.read_parquet(path)
           latest = pd.to_datetime(df['date'].max()).date()
-          today = datetime.now().date()
+          today = date.today()
+
+          # 计算"应该已有数据"的最近交易日（同 NAV 新鲜度校验）
+          yesterday = today - timedelta(days=1)
+          expected = yesterday
+          while expected.weekday() >= 5:
+              expected = expected - timedelta(days=1)
+
+          # 交易日差距
+          gap = 0
+          cur = expected
+          while cur > latest:
+              gap += 1
+              cur = cur - timedelta(days=1)
+              while cur.weekday() >= 5:
+                  cur = cur - timedelta(days=1)
+
           print(f'数据日期: {latest}')
-          print(f'当前日期: {today}')
-          diff = (today - latest).days
-          # 容忍 ≤2 自然日延迟（覆盖周末 & 1天节假日缓冲）
-          # 例如: 周五数据 → 周一 cron diff=2 → 仅警告
-          if diff > 2:
-              print(f'[FATAL] 数据延迟 {diff} 天（>2），拒绝部署陈旧数据')
-              print(f'  当前 UTC 日期: {today}')
-              print(f'  最新数据日期: {latest}')
+          print(f'应有数据日期: {expected}')
+          print(f'滞后交易日数: {gap}')
+
+          if gap > 1:
+              print(f'[FATAL] 数据滞后 {gap} 个交易日，拒绝部署陈旧数据')
               print(f'  可能原因: API 数据源异常 / 长时间假期 / 上游流水线失败')
               sys.exit(1)
-          elif diff > 1:
-              print(f'[WARN] 数据延迟 {diff} 天（容忍范围内，继续部署）')
+          elif gap == 1:
+              print(f'[WARN] 数据滞后 1 个交易日，继续部署')
           else:
-              print('[OK] 数据为近期数据')
+              print('[OK] 数据为最新可用交易日')
           # 输出版本日期供邮件使用
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'data_date={latest}\n')
