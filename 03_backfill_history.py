@@ -308,7 +308,7 @@ def backfill_excess(fund_perf, index_perf, fund_master):
                             "year_1_change", "year_3_change", "year_5_change"]:
             excess_field = perf_field.replace("change", "excess")
             idx_map = ip.set_index("index_code")[perf_field].to_dict()
-            merged[excess_field] = merged[perf_field] - 0.95 * merged["benchmark_index"].map(idx_map)
+            merged[excess_field] = merged[perf_field] - merged["benchmark_index"].map(idx_map)
 
         results.append(merged)
 

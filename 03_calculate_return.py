@@ -677,10 +677,9 @@ def calculate_excess_performance(
         # 指数涨跌幅映射
         idx_map = index_perf.set_index("index_code")[perf_field].to_dict()
 
-        # 总超额 = 基金收益 - 0.95 × 基准收益
-        # 指数增强基金仓位上限 95%，用 0.95 系数还原真实超额能力
+        # 总超额 = 基金收益 − 基准收益
         merged[excess_field] = (
-            merged[perf_field] - 0.95 * merged["benchmark_index"].map(idx_map)
+            merged[perf_field] - merged["benchmark_index"].map(idx_map)
         )
 
         # 纯增强 Alpha = 总超额 - 股息复利修正
