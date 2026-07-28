@@ -144,9 +144,12 @@ def calc_performance_for_date(nav_df: pd.DataFrame, target_date: date) -> dict |
 
     # 中长期
     if adj_values and latest_adj is not None:
-        result["day_20_change"] = _change(
-            latest_date - pd.Timedelta(days=28), adj_values, latest_adj
-        )
+        # 近 20 交易日：精确倒数第 21 个交易日
+        if len(dates) >= 21:
+            base_20 = adj_values.get(dates.iloc[-21])
+            result["day_20_change"] = latest_adj / base_20 - 1 if base_20 and base_20 != 0 else None
+        else:
+            result["day_20_change"] = None
         result["month_1_change"] = _change(
             _subtract_months(latest_date, 1), adj_values, latest_adj
         )
@@ -308,7 +311,7 @@ def backfill_excess(fund_perf, index_perf, fund_master):
                             "year_1_change", "year_3_change", "year_5_change"]:
             excess_field = perf_field.replace("change", "excess")
             idx_map = ip.set_index("index_code")[perf_field].to_dict()
-            merged[excess_field] = merged[perf_field] - 0.95 * merged["benchmark_index"].map(idx_map)
+            merged[excess_field] = merged[perf_field] - merged["benchmark_index"].map(idx_map)
 
         results.append(merged)
 
