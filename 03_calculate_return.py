@@ -194,12 +194,9 @@ def _calculate_performance(
 
     # ── 中长期：复权净值 ──
     if adj_values and latest_adj is not None:
-        # 近 20 交易日：从日期序列精确取倒数第 21 个（跳过 20 个交易日）
-        if len(dates) >= 21:
-            base_20 = adj_values.get(dates.iloc[-21])
-            result["day_20_change"] = latest_adj / base_20 - 1 if base_20 and base_20 != 0 else None
-        else:
-            result["day_20_change"] = None
+        result["day_20_change"] = _change(
+            latest_date - timedelta(days=28), adj_values, latest_adj
+        )
         result["month_1_change"] = _change(
             _subtract_months(latest_date, 1), adj_values, latest_adj
         )
@@ -606,9 +603,9 @@ _EXCESS_RISK_COLS = [
 
 # 各区间对应的近似年限（用于股息修正）
 _PERIOD_YEARS_FIXED: dict[str, float] = {
-    "daily_change": 0,             # 基于 unit_nav（不含分红），无需股息修正
-    "week_change": 0,              # 基于 unit_nav（不含分红），无需股息修正
-    "day_20_change": 20 / 252,     # ~20 个交易日（基于 adj_nav）
+    "daily_change": 1 / 252,       # ~1 个交易日
+    "week_change": 5 / 252,        # ~5 个交易日
+    "day_20_change": 20 / 252,     # ~20 个交易日
     "month_1_change": 1 / 12,
     "month_3_change": 3 / 12,
     "month_6_change": 6 / 12,
@@ -680,9 +677,10 @@ def calculate_excess_performance(
         # 指数涨跌幅映射
         idx_map = index_perf.set_index("index_code")[perf_field].to_dict()
 
-        # 总超额 = 基金收益 - 基准收益
+        # 总超额 = 基金收益 - 0.95 × 基准收益
+        # 指数增强基金仓位上限 95%，用 0.95 系数还原真实超额能力
         merged[excess_field] = (
-            merged[perf_field] - merged["benchmark_index"].map(idx_map)
+            merged[perf_field] - 0.95 * merged["benchmark_index"].map(idx_map)
         )
 
         # 纯增强 Alpha = 总超额 - 股息复利修正
