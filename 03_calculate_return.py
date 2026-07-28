@@ -421,9 +421,8 @@ def _load_or_fetch_index(index_code: str) -> pd.DataFrame | None:
         latest_data_date = df["date"].max()
         days_since_data = (date.today() - latest_data_date).days
 
-        # 策略: 如果缓存的最新数据日期在 1 天内（今天/昨天），直接复用
-        # 这覆盖了周末场景（周五数据，周六运行 → days=1，不重新下载）
-        if days_since_data <= 1:
+        # 缓存数据日期 ≥ 今天 → 已是最新，无需重复拉取
+        if latest_data_date >= date.today():
             return df
 
         # 数据滞后 > 1 天，且文件修改时间 < 24h → 可能是今天已经试过但市场没开盘
@@ -651,6 +650,19 @@ def calculate_excess_performance(
     if index_perf.empty:
         print("✗ 指数数据为空\n")
         return pd.DataFrame()
+
+    # ── 日期对齐：基金和指数必须取同一交易日 ──
+    fund_date = fund_perf["date"].max()
+    index_dates = index_perf["date"].unique()
+    if fund_date not in index_dates:
+        print(f"[FATAL] 基金数据日期 ({fund_date}) 与指数数据日期 ({sorted(index_dates)}) 不匹配！")
+        print(f"  基金最新日期: {fund_date}")
+        print(f"  指数可用日期: {sorted(index_dates)}")
+        print(f"  请检查指数缓存是否过期（data/index/*.parquet）或手动刷新")
+        return pd.DataFrame()
+    # 只保留与基金同一天的指数数据
+    index_perf = index_perf[index_perf["date"] == fund_date].copy()
+    print(f"  日期对齐: 基金={fund_date}, 指数={fund_date} ✓")
 
     # 基金元信息
     info = fund_master[[
