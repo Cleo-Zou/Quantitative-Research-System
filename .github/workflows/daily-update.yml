@@ -128,8 +128,7 @@ jobs:
               print('[OK] NAV 数据为最新可用交易日')
           "
 
-      - name: 03 计算涨跌幅与超额
-        if: ${{ !inputs.backfill }}
+      - name: 03 计算涨跌幅与超额（回填时也运行，确保指数数据刷新）
         run: python 03_calculate_return.py
 
       - name: 历史数据回填（仅手动触发，一次性）
