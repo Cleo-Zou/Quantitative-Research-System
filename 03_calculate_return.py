@@ -847,11 +847,9 @@ def calculate_excess_risk_metrics(excess_perf: pd.DataFrame) -> pd.DataFrame:
             continue
 
         # ── 指标计算 ──
-        mean_ex = float(excess_series.mean())
-        std_ex = float(excess_series.std())
-
-        excess_ann_ret = mean_ex * 252
-        tracking_err = std_ex * np.sqrt(252)
+        cum_prod = (1 + excess_series).prod()
+        excess_ann_ret = float(cum_prod ** (252 / N) - 1)  # 几何年化，与 annual_return 口径一致
+        tracking_err = float(excess_series.std()) * np.sqrt(252)
 
         ir = excess_ann_ret / tracking_err if tracking_err > 0 else None
 
