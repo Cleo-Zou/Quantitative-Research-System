@@ -307,8 +307,11 @@ def backfill_excess(fund_perf, index_perf, fund_master):
                             "ytd_change",
                             "year_1_change", "year_3_change", "year_5_change"]:
             excess_field = perf_field.replace("change", "excess")
+            alpha_field = perf_field.replace("change", "alpha")
             idx_map = ip.set_index("index_code")[perf_field].to_dict()
             merged[excess_field] = merged[perf_field] - 0.95 * merged["benchmark_index"].map(idx_map)
+            # 回填暂不扣股息（无历史股息率数据），alpha ≈ excess
+            merged[alpha_field] = merged[excess_field]
 
         results.append(merged)
 
@@ -326,7 +329,11 @@ def backfill_excess(fund_perf, index_perf, fund_master):
                 "daily_excess", "week_excess", "day_20_excess",
                 "month_1_excess", "month_3_excess", "month_6_excess",
                 "ytd_excess",
-                "year_1_excess", "year_3_excess", "year_5_excess"]
+                "year_1_excess", "year_3_excess", "year_5_excess",
+                "daily_alpha", "week_alpha", "day_20_alpha",
+                "month_1_alpha", "month_3_alpha", "month_6_alpha",
+                "ytd_alpha",
+                "year_1_alpha", "year_3_alpha", "year_5_alpha"]
     out_cols = [c for c in out_cols if c in df.columns]
     df = df[out_cols]
     print(f"  完成: {len(df)} 行, {df['date'].nunique()} 个交易日\n")
