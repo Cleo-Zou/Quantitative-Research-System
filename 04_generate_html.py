@@ -153,7 +153,12 @@ def _load_index_history() -> dict:
             continue
         try:
             import akshare as ak
-            raw = ak.stock_zh_index_daily(symbol=symbol)
+            # CSI_ALL 用东方财富接口
+            if idx_code == "CSI_ALL":
+                em_sym = symbol.replace("sz", "").replace("sh", "")
+                raw = ak.stock_zh_index_daily_em(symbol=em_sym)
+            else:
+                raw = ak.stock_zh_index_daily(symbol=symbol)
             if raw is None or raw.empty:
                 continue
             # 找日期列和收盘列
