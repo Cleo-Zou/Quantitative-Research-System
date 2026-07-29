@@ -128,37 +128,10 @@ jobs:
               print('[OK] NAV 数据为最新可用交易日')
           "
 
-      - name: 测试指数接口（一次性验证）
-        run: |
-          python -c "
-          import akshare as ak
-          import pandas as pd, sys
-
-          tests = [
-              ('stock_zh_index_daily_em', lambda s: ak.stock_zh_index_daily_em(symbol=s)),
-              ('stock_zh_index_daily_tx', lambda s: ak.stock_zh_index_daily_tx(symbol=s)),
-              ('index_zh_a_hist', lambda s: ak.index_zh_a_hist(symbol=s, period='daily', start_date='20260101', end_date='20260729')),
-          ]
-          symbols = ['000985', '0.000985', '1.000985']
-
-          for name, fn in tests:
-              for sym in symbols:
-                  try:
-                      df = fn(sym)
-                      if df is not None and not df.empty:
-                          print(f'✓ {name}({sym}): {len(df)} 行, columns={list(df.columns)}')
-                          print(df.tail(2).to_string())
-                          print()
-                          break
-                  except Exception as e:
-                      print(f'✗ {name}({sym}): {type(e).__name__}: {e}')
-              else:
-                  print(f'✗ {name}: 所有符号均失败')
-              print()
-          "
-
       - name: 03 计算涨跌幅与超额（回填时也运行，确保指数数据刷新）
-        run: python 03_calculate_return.py
+        run: |
+          rm -f data/index/CSI_ALL.parquet
+          python 03_calculate_return.py
 
       - name: 历史数据回填（仅手动触发，一次性）
         if: ${{ inputs.backfill }}

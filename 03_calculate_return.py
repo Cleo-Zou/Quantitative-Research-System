@@ -377,6 +377,10 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
 # 3. 指数涨跌幅计算
 
 def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
+    # CSI_ALL 用 index_zh_a_hist（东方财富源，数据与同花顺一致）
+    if index_code == "CSI_ALL":
+        return _fetch_csi_all_eastmoney()
+
     symbol = INDEX_AKSHARE_SYMBOLS.get(index_code)
     if symbol is None:
         print(f"  ✗ 未知指数代码: {index_code}")
@@ -404,6 +408,41 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
             return result
 
         except Exception:
+            if attempt < MAX_RETRIES:
+                time.sleep(REQUEST_DELAY * 2)
+
+    return None
+
+
+def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
+    """中证全指走东方财富源（ak.index_zh_a_hist），与同花顺数据一致。"""
+    for attempt in range(1 + MAX_RETRIES):
+        try:
+            df = ak.index_zh_a_hist(
+                symbol="000985", period="daily",
+                start_date="19000101", end_date="20991231",
+            )
+            if df is None or df.empty:
+                return None
+
+            date_col = find_col(df, "日期", "date")
+            close_col = find_col(df, "收盘", "close")
+
+            if date_col is None or close_col is None:
+                return None
+
+            result = pd.DataFrame()
+            result["date"] = pd.to_datetime(df[date_col]).dt.date
+            result["index_value"] = pd.to_numeric(
+                df[close_col], errors="coerce"
+            )
+            result = result.dropna(subset=["date", "index_value"])
+            result = result.sort_values("date").reset_index(drop=True)
+            print(f"  ✓ 中证全指(东方财富): {len(result)} 条, 最新 {result['date'].max()}")
+            return result
+
+        except Exception as e:
+            print(f"  [WARN] 东方财富第{attempt+1}次失败: {e}")
             if attempt < MAX_RETRIES:
                 time.sleep(REQUEST_DELAY * 2)
 
