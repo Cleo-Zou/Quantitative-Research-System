@@ -50,7 +50,7 @@ jobs:
             data/return/
             data/fund_master.parquet
             data/fund_detail_cache.parquet
-          key: fund-data-v3-${{ runner.os }}-${{ github.run_date }}
+          key: fund-data-v3-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             fund-data-v3-${{ runner.os }}-
 
