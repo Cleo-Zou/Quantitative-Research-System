@@ -446,6 +446,24 @@ def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
             if attempt < MAX_RETRIES:
                 time.sleep(REQUEST_DELAY * 2)
 
+    # ── 兜底：东方财富不可用，回退 sz000985 ──
+    print("  ⚠ 东方财富不可用，回退 sz000985...")
+    try:
+        df = ak.stock_zh_index_daily(symbol="sz000985")
+        if df is not None and not df.empty:
+            date_col = find_col(df, "date", "日期")
+            close_col = find_col(df, "close", "收盘")
+            if date_col and close_col:
+                result = pd.DataFrame()
+                result["date"] = pd.to_datetime(df[date_col]).dt.date
+                result["index_value"] = pd.to_numeric(df[close_col], errors="coerce")
+                result = result.dropna(subset=["date", "index_value"])
+                result = result.sort_values("date").reset_index(drop=True)
+                print(f"  ✓ 中证全指(sz000985兜底): {len(result)} 条, 最新 {result['date'].max()}")
+                return result
+    except Exception as e:
+        print(f"  [WARN] sz000985 兜底也失败: {e}")
+
     return None
 
 
