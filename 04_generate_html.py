@@ -153,19 +153,12 @@ def _load_index_history() -> dict:
             continue
         try:
             import akshare as ak
-            # CSI_ALL 用东方财富接口
-            if idx_code == "CSI_ALL":
-                em_sym = symbol.replace("sz", "").replace("sh", "")
-                raw = ak.stock_zh_index_daily_em(symbol=em_sym)
-                if raw is not None and not raw.empty:
-                    print(f"  [DEBUG] EM 列名: {list(raw.columns)}")
-            else:
-                raw = ak.stock_zh_index_daily(symbol=symbol)
+            raw = ak.stock_zh_index_daily(symbol=symbol)
             if raw is None or raw.empty:
                 continue
             # 找日期列和收盘列
             date_col = next((c for c in raw.columns if "date" in str(c) or "日期" in str(c)), None)
-            close_col = next((c for c in raw.columns if "close" in str(c) or "收盘" in str(c) or "最新价" in str(c)), None)
+            close_col = next((c for c in raw.columns if "close" in str(c) or "收盘" in str(c)), None)
             if date_col is None or close_col is None:
                 continue
             df = pd.DataFrame()

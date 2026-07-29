@@ -382,23 +382,14 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
         print(f"  ✗ 未知指数代码: {index_code}")
         return None
 
-    # CSI_ALL 用东方财富接口（数据更接近同花顺），其他指数用默认接口
-    use_em = (index_code == "CSI_ALL")
-    em_symbol = symbol.replace("sz", "").replace("sh", "") if use_em else None
-
     for attempt in range(1 + MAX_RETRIES):
         try:
-            if use_em:
-                df = ak.stock_zh_index_daily_em(symbol=em_symbol)
-                if df is not None and not df.empty:
-                    print(f"  [DEBUG] EM 列名: {list(df.columns)}")
-            else:
-                df = ak.stock_zh_index_daily(symbol=symbol)
+            df = ak.stock_zh_index_daily(symbol=symbol)
             if df is None or df.empty:
                 return None
 
             date_col = find_col(df, "date", "日期")
-            close_col = find_col(df, "close", "收盘", "最新价")
+            close_col = find_col(df, "close", "收盘")
 
             if date_col is None or close_col is None:
                 return None
