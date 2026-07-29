@@ -546,14 +546,10 @@ def _fetch_index_dividend_yield(index_code: str) -> float | None:
     return None
 
 
-def calculate_index_performance() -> pd.DataFrame:
+def calculate_index_performance(max_date: date | None = None) -> pd.DataFrame:
     """
     计算四大指数的区间涨跌幅 + 股息率（每个指数一行）。
-
-    Alpha 解释:
-    - 基金使用 adj_nav（含分红再投资），指数使用 price index（不含分红）
-    - 因此 fund_return - index_return ≈ 增强收益 + 分红收益
-    - 本函数额外获取指数股息率，供超额计算做股息修正
+    max_date: 截止日期，指数数据超过此日期的部分会被截断（用于对齐基金数据日期）。
     """
     print("=" * 60)
     print("Step 2 / 4  计算指数涨跌幅（App 口径）")
@@ -572,6 +568,10 @@ def calculate_index_performance() -> pd.DataFrame:
         if nav is None or nav.empty:
             print(f"  ✗ {label} 跳过（无数据）")
             continue
+
+        # ── 截断到 max_date，避免用到还未公布基金净值的指数数据 ──
+        if max_date is not None:
+            nav = nav[nav["date"] <= max_date].copy()
 
         try:
             # 指数收盘价同时充当 unit_nav 和 adj_nav
@@ -1073,7 +1073,8 @@ def main():
         return
 
     fund_perf = calculate_fund_performance(fund_master)
-    index_perf = calculate_index_performance()
+    fund_max_date = fund_perf["date"].max()
+    index_perf = calculate_index_performance(max_date=fund_max_date)
     excess_perf = calculate_excess_performance(
         fund_perf, index_perf, fund_master
     )
