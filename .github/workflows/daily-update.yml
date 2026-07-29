@@ -135,35 +135,35 @@ jobs:
         if: ${{ inputs.backfill }}
         run: python 03_backfill_history.py
 
-      - name: 诊断 023119 日超额
+      - name: 诊断 日超额
         run: |
           python -c "
           import pandas as pd
           excess = pd.read_parquet('data/return/excess_return.parquet')
-          e = excess[excess['fund_code'] == '023119']
-          # 最近 5 天
-          for _, r in e.sort_values('date').tail(5).iterrows():
-              d = r['date']
-              fc = r.get('daily_change', float('nan'))
-              fe = r.get('daily_excess', float('nan'))
-              print(f'  {d} | fund_daily={fc*100:.4f}% | daily_excess={fe*100:.4f}%')
-          print()
-          # 查指数同日的
           idx = pd.read_parquet('data/return/index_return.parquet')
-          csi = idx[idx['index_code'] == 'CSI_ALL']
-          for _, r in csi.sort_values('date').tail(5).iterrows():
-              ic = r.get('daily_change', float('nan'))
-              print(f'  CSI_ALL {r[\"date\"]} | index_daily={ic*100:.4f}%')
-          print()
-          # 反算验证
-          r24 = e[(e['fund_code'] == '023119') & (e['date'] == pd.Timestamp('2026-07-24').date())]
-          i24 = csi[csi['date'] == pd.Timestamp('2026-07-24').date()]
-          if len(r24) > 0 and len(i24) > 0:
-              fc = r24.iloc[0]['daily_change']
-              ic = i24.iloc[0]['daily_change']
-              manual = fc - 0.95 * ic
-              print(f'反算: {fc*100:.4f}% - 0.95*({ic*100:.4f}%) = {manual*100:.4f}%')
-              print(f'HTML显示: {r24.iloc[0][\"daily_excess\"]*100:.4f}%')
+          for fund in ['023119', '000176']:
+              e = excess[excess['fund_code'] == fund]
+              if e.empty: continue
+              bm = e.iloc[-1].get('benchmark_index', '?')
+              print(f'=== {fund} (benchmark={bm}) ===')
+              for _, r in e.sort_values('date').tail(3).iterrows():
+                  fc = r.get('daily_change', float('nan'))
+                  fe = r.get('daily_excess', float('nan'))
+                  print(f'  {r[\"date\"]} | fund={fc*100:.4f}% | excess={fe*100:.4f}%')
+              # 对应指数
+              ibm = idx[idx['index_code'] == bm]
+              print(f'  指数 {bm}:')
+              for _, r in ibm.sort_values('date').tail(3).iterrows():
+                  ic = r.get('daily_change', float('nan'))
+                  print(f'    {r[\"date\"]} | index_daily={ic*100:.4f}%')
+              # 反算最新
+              ed = e.sort_values('date').iloc[-1]
+              id_row = ibm[ibm['date'] == ed['date']]
+              if len(id_row) > 0:
+                  fc, ic = ed['daily_change'], id_row.iloc[0]['daily_change']
+                  manual = fc - 0.95 * ic
+                  print(f'  反算: {fc*100:.4f}% - 0.95*({ic*100:.4f}%) = {manual*100:.4f}%  |  HTML: {ed[\"daily_excess\"]*100:.4f}%')
+              print()
           "
 
       - name: 04 生成绩效 HTML
