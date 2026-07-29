@@ -415,57 +415,75 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
 
 
 def _fetch_csi_all_from_eastmoney() -> pd.DataFrame | None:
-    """直连东方财富 HTTP API 拉取中证全指(000985)日线数据。
-    绕过 AKShare，解决 sz000985 数据与同花顺不一致的问题。
-    """
+    """直连东方财富 HTTP API 拉取中证全指(000985)日线数据。"""
     import json
     import urllib.request
-    import urllib.error
 
-    url = (
-        "http://push2his.eastmoney.com/api/qt/stock/kline/get"
-        "?secid=1.000985"
-        "&fields1=f1,f2,f3,f4,f5,f6"
-        "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-        "&klt=101&fqt=0&end=20500101&lmt=20000"
-    )
-
-    for attempt in range(1 + MAX_RETRIES):
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0",
-                "Referer": "http://quote.eastmoney.com/",
-            })
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
-
-            klines = data.get("data", {}).get("klines", [])
-            if not klines:
-                return None
-
-            rows = []
-            for line in klines:
-                parts = line.split(",")
-                if len(parts) < 3:
-                    continue
-                rows.append({
-                    "date": pd.to_datetime(parts[0]).date(),
-                    "index_value": float(parts[2]),  # close
+    # 尝试多个 secid 格式（不同市场代码）
+    for secid in ("1.000985", "0.000985"):
+        url = (
+            "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+            f"?secid={secid}"
+            "&fields1=f1,f2,f3,f4,f5,f6"
+            "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+            "&klt=101&fqt=0&end=20500101&lmt=20000"
+        )
+        for attempt in range(1 + MAX_RETRIES):
+            try:
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "http://quote.eastmoney.com/zs000985.html",
                 })
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read().decode())
 
-            if not rows:
-                return None
+                klines = data.get("data", {}).get("klines", [])
+                if not klines:
+                    print(f"  [WARN] EM secid={secid} 无数据")
+                    break  # try next secid
 
-            result = pd.DataFrame(rows)
-            result = result.dropna(subset=["date", "index_value"])
-            result = result.sort_values("date").reset_index(drop=True)
-            print(f"  ✓ 中证全指(东方财富) 已拉取: {len(result)} 条")
-            return result
+                rows = []
+                for line in klines:
+                    parts = line.split(",")
+                    if len(parts) < 3:
+                        continue
+                    rows.append({
+                        "date": pd.to_datetime(parts[0]).date(),
+                        "index_value": float(parts[2]),
+                    })
 
-        except Exception as e:
-            print(f"  [WARN] 东方财富 API 第{attempt+1}次失败: {e}")
-            if attempt < MAX_RETRIES:
-                time.sleep(REQUEST_DELAY * 2)
+                if not rows:
+                    break
+
+                result = pd.DataFrame(rows)
+                result = result.dropna(subset=["date", "index_value"])
+                result = result.sort_values("date").reset_index(drop=True)
+                print(f"  ✓ 中证全指(东方财富) secid={secid}: {len(result)} 条, 最新 {result['date'].max()}")
+                return result
+
+            except Exception as e:
+                if attempt < MAX_RETRIES:
+                    time.sleep(REQUEST_DELAY * 2)
+                else:
+                    print(f"  [WARN] EM secid={secid} 失败: {e}")
+
+    # ── 兜底：用 AKShare sz000985 ──
+    print("  EM 不可用，回退 AKShare sz000985...")
+    try:
+        df = ak.stock_zh_index_daily(symbol="sz000985")
+        if df is not None and not df.empty:
+            date_col = find_col(df, "date", "日期")
+            close_col = find_col(df, "close", "收盘")
+            if date_col and close_col:
+                result = pd.DataFrame()
+                result["date"] = pd.to_datetime(df[date_col]).dt.date
+                result["index_value"] = pd.to_numeric(df[close_col], errors="coerce")
+                result = result.dropna(subset=["date", "index_value"])
+                result = result.sort_values("date").reset_index(drop=True)
+                print(f"  ✓ 中证全指(AKShare兜底): {len(result)} 条")
+                return result
+    except Exception as e:
+        print(f"  [WARN] AKShare 兜底也失败: {e}")
 
     return None
 
