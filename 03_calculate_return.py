@@ -390,13 +390,15 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
         try:
             if use_em:
                 df = ak.stock_zh_index_daily_em(symbol=em_symbol)
+                if df is not None and not df.empty:
+                    print(f"  [DEBUG] EM 列名: {list(df.columns)}")
             else:
                 df = ak.stock_zh_index_daily(symbol=symbol)
             if df is None or df.empty:
                 return None
 
             date_col = find_col(df, "date", "日期")
-            close_col = find_col(df, "close", "收盘")
+            close_col = find_col(df, "close", "收盘", "最新价")
 
             if date_col is None or close_col is None:
                 return None

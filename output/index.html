@@ -12,19 +12,11 @@
         padding: 24px 36px; min-height: 100vh;
     }
     .header {
-        display: flex; justify-content: space-between; align-items: flex-start;
-        margin-bottom: 20px; padding-bottom: 16px;
-        border-bottom: 2px solid #1a2d3d; flex-wrap: wrap;
+        text-align: center; margin-bottom: 20px; padding-bottom: 16px;
+        border-bottom: 2px solid #1a2d3d;
     }
-    .header-left { text-align: left; }
-    .header-left h1 { font-size: 24px; font-weight: 600; color: #e8ecf1; letter-spacing: 2px; }
-    .header-left .meta { font-size: 13px; color: #d0d6dc; margin-top: 8px; }
-    .top-info-box {
-        background: #152028; border: 1px solid #1e3040; border-radius: 4px;
-        color: #5a6f80; font-size: 11px; padding: 8px 12px; max-width: 380px;
-        line-height: 1.6; text-align: left; flex-shrink: 0;
-    }
-    .top-info-box p { margin: 0; }
+    .header h1 { font-size: 24px; font-weight: 600; color: #e8ecf1; letter-spacing: 2px; }
+    .header .meta { font-size: 13px; color: #d0d6dc; margin-top: 8px; }
 
     /* ── Tabs ── */
     .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -42,7 +34,7 @@
     }
     .table-wrapper.active { display: block; }
 
-    table { border-collapse: collapse; width: 100%; table-layout: auto; min-width: 900px; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; min-width: 1000px; }
     thead th {
         background: #1a2e3d; color: #8899aa;
         font-size: 12px; font-weight: 500; text-transform: uppercase;
@@ -52,7 +44,7 @@
     }
 
     tbody td {
-        padding: 10px 8px; font-size: 12px; text-align: center;
+        padding: 8px 6px; font-size: 12px; text-align: center;
         border-bottom: 1px solid #1a2a35;
         font-variant-numeric: tabular-nums; color: #c8d0d8;
     }
@@ -66,12 +58,6 @@
         font-size: 13px; letter-spacing: 0.5px;
     }
     tbody td:nth-child(2) { color: #d8dfe6; font-weight: 450; }
-    /* 成立时间、成立规模 -- 字号大一号、颜色更亮 */
-    tbody td:nth-child(4), tbody td:nth-child(5) {
-        font-size: 13px; color: #e0e6ee; font-weight: 500;
-    }
-    /* 最后一列更宽 */
-    tbody td:last-child { min-width: 140px; }
 
     .empty-reason { color: #4a5d6e; font-size: 11px; font-weight: 400; }
 
@@ -126,12 +112,9 @@
 <body>
 
 <div class="header">
-    <div class="header-left">
-      <h1>沪深300 · 中证500 · 中证1000 · 中证全指 指数增强基金</h1>
-      <span class="meta">数据日期: 2026-07-23 &nbsp;|&nbsp; 共 225 只基金 &nbsp;|&nbsp;
-        沪深300 83只, 中证500 82只, 中证1000 46只, 中证全指 14只</span>
-    </div>
-    <div class="top-info-box"><p>说明：部分基金因成立时间不足，对应周期涨跌幅/超额为空，已在格内标注原因（如"成立不足1年"）。点击基金行可查看近 90 日累计收益走势图。点击表头箭头可排序。</p></div>
+    <h1>沪深300 · 中证500 · 中证1000 · 中证全指 指数增强基金</h1>
+    <span class="meta">数据日期: 2026-07-23 &nbsp;|&nbsp; 共 225 只基金 &nbsp;|&nbsp;
+      沪深300 83只, 中证500 82只, 中证1000 46只, 中证全指 14只</span>
 </div>
 
 <div class="tabs">
@@ -148,10 +131,10 @@
       <th>成立时间</th>
       <th>成立规模</th>
       <th>日涨跌幅</th>
-      <th>20日涨跌幅</th>
+      <th>20交易日涨跌幅</th>
       <th>YTD</th>
       <th>日超额</th>
-      <th>20日超额</th>
+      <th>20交易日超额</th>
       <th>YTD超额</th>
     </tr>
   </thead>
@@ -1247,10 +1230,10 @@
       <th>成立时间</th>
       <th>成立规模</th>
       <th>日涨跌幅</th>
-      <th>20日涨跌幅</th>
+      <th>20交易日涨跌幅</th>
       <th>YTD</th>
       <th>日超额</th>
-      <th>20日超额</th>
+      <th>20交易日超额</th>
       <th>YTD超额</th>
     </tr>
   </thead>
@@ -2333,10 +2316,10 @@
       <th>成立时间</th>
       <th>成立规模</th>
       <th>日涨跌幅</th>
-      <th>20日涨跌幅</th>
+      <th>20交易日涨跌幅</th>
       <th>YTD</th>
       <th>日超额</th>
-      <th>20日超额</th>
+      <th>20交易日超额</th>
       <th>YTD超额</th>
     </tr>
   </thead>
@@ -2951,10 +2934,10 @@
       <th>成立时间</th>
       <th>成立规模</th>
       <th>日涨跌幅</th>
-      <th>20日涨跌幅</th>
+      <th>20交易日涨跌幅</th>
       <th>YTD</th>
       <th>日超额</th>
-      <th>20日超额</th>
+      <th>20交易日超额</th>
       <th>YTD超额</th>
     </tr>
   </thead>
@@ -3145,7 +3128,7 @@
 </table>
 </div>
 
-
+<div class="footnote"><p>说明：部分基金因成立时间不足，对应周期涨跌幅/超额为空，已在格内标注原因（如"成立不足1年"）。点击基金行可查看近 90 日累计收益走势图。</p></div>
 
 <!-- ── 弹窗 ── -->
 <div class="modal-overlay" id="modal-overlay">
@@ -3345,19 +3328,8 @@ window.addEventListener('resize', function() {
     function parseCellValue(td) {
         var span = td.querySelector('span');
         var text = span ? span.textContent.trim() : td.textContent.trim();
-        if (!text) return -Infinity;
-        // 百分比
         var pctMatch = text.match(/^([+-]?\d+\.?\d*)%?$/);
         if (pctMatch) return parseFloat(pctMatch[1]);
-        // 日期: YYYY-MM-DD → 字符串比较（ISO格式天然有序）
-        if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-        // 规模: 12.44亿 / 7112.58万 → 转为"万"为单位的数值
-        var scaleMatch = text.match(/^([\d,]+\.?\d*)(亿|万)?$/);
-        if (scaleMatch) {
-            var num = parseFloat(scaleMatch[1].replace(/,/g, ''));
-            if (scaleMatch[2] === '亿') num *= 10000;
-            return num;
-        }
         if (text && !text.match(/^[+-]?\d/)) return -Infinity;
         var num = parseFloat(text);
         return isNaN(num) ? -Infinity : num;
@@ -3376,11 +3348,6 @@ window.addEventListener('resize', function() {
             rows.sort(function(a, b) {
                 var aVal = parseCellValue(a.querySelectorAll('td')[colIdx]);
                 var bVal = parseCellValue(b.querySelectorAll('td')[colIdx]);
-                // 日期字符串用字符串比较
-                if (typeof aVal === 'string' && typeof bVal === 'string') {
-                    var cmp = aVal.localeCompare(bVal);
-                    return dir === 'asc' ? cmp : -cmp;
-                }
                 if (dir === 'asc') return aVal - bVal;
                 return bVal - aVal;
             });
