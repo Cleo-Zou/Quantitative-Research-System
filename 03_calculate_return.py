@@ -377,6 +377,10 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
 # 3. 指数涨跌幅计算
 
 def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
+    # ── CSI_ALL 直连东方财富 API（AKShare sz000985 数据偏差大） ──
+    if index_code == "CSI_ALL":
+        return _fetch_csi_all_from_eastmoney()
+
     symbol = INDEX_AKSHARE_SYMBOLS.get(index_code)
     if symbol is None:
         print(f"  ✗ 未知指数代码: {index_code}")
@@ -404,6 +408,62 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
             return result
 
         except Exception:
+            if attempt < MAX_RETRIES:
+                time.sleep(REQUEST_DELAY * 2)
+
+    return None
+
+
+def _fetch_csi_all_from_eastmoney() -> pd.DataFrame | None:
+    """直连东方财富 HTTP API 拉取中证全指(000985)日线数据。
+    绕过 AKShare，解决 sz000985 数据与同花顺不一致的问题。
+    """
+    import json
+    import urllib.request
+    import urllib.error
+
+    url = (
+        "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+        "?secid=1.000985"
+        "&fields1=f1,f2,f3,f4,f5,f6"
+        "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+        "&klt=101&fqt=0&end=20500101&lmt=20000"
+    )
+
+    for attempt in range(1 + MAX_RETRIES):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "http://quote.eastmoney.com/",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+
+            klines = data.get("data", {}).get("klines", [])
+            if not klines:
+                return None
+
+            rows = []
+            for line in klines:
+                parts = line.split(",")
+                if len(parts) < 3:
+                    continue
+                rows.append({
+                    "date": pd.to_datetime(parts[0]).date(),
+                    "index_value": float(parts[2]),  # close
+                })
+
+            if not rows:
+                return None
+
+            result = pd.DataFrame(rows)
+            result = result.dropna(subset=["date", "index_value"])
+            result = result.sort_values("date").reset_index(drop=True)
+            print(f"  ✓ 中证全指(东方财富) 已拉取: {len(result)} 条")
+            return result
+
+        except Exception as e:
+            print(f"  [WARN] 东方财富 API 第{attempt+1}次失败: {e}")
             if attempt < MAX_RETRIES:
                 time.sleep(REQUEST_DELAY * 2)
 
