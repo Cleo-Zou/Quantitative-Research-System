@@ -129,9 +129,7 @@ jobs:
           "
 
       - name: 03 计算涨跌幅与超额（回填时也运行，确保指数数据刷新）
-        run: |
-          rm -f data/index/CSI_ALL.parquet
-          python 03_calculate_return.py
+        run: python 03_calculate_return.py
 
       - name: 历史数据回填（仅手动触发，一次性）
         if: ${{ inputs.backfill }}

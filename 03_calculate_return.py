@@ -690,18 +690,23 @@ def calculate_excess_performance(
         print("✗ 指数数据为空\n")
         return pd.DataFrame()
 
-    # ── 日期对齐：基金和指数必须取同一交易日 ──
+    # ── 日期对齐：每个指数取 ≤ 基金日期的最新交易日 ──
     fund_date = fund_perf["date"].max()
-    index_dates = index_perf["date"].unique()
-    if fund_date not in index_dates:
-        print(f"[FATAL] 基金数据日期 ({fund_date}) 与指数数据日期 ({sorted(index_dates)}) 不匹配！")
-        print(f"  基金最新日期: {fund_date}")
-        print(f"  指数可用日期: {sorted(index_dates)}")
-        print(f"  请检查指数缓存是否过期（data/index/*.parquet）或手动刷新")
+    aligned = []
+    for idx_code in index_perf["index_code"].unique():
+        idx_data = index_perf[index_perf["index_code"] == idx_code]
+        idx_data = idx_data[idx_data["date"] <= fund_date]
+        if idx_data.empty:
+            print(f"  [WARN] {idx_code} 无 ≤{fund_date} 的数据，跳过")
+            continue
+        best = idx_data.sort_values("date").iloc[-1]
+        aligned.append(best)
+    if not aligned:
+        print(f"[FATAL] 所有指数均无 ≤{fund_date} 的数据")
         return pd.DataFrame()
-    # 只保留与基金同一天的指数数据
-    index_perf = index_perf[index_perf["date"] == fund_date].copy()
-    print(f"  日期对齐: 基金={fund_date}, 指数={fund_date} ✓")
+    index_perf = pd.DataFrame(aligned).reset_index(drop=True)
+    idx_dates = {r["index_code"]: r["date"] for _, r in index_perf.iterrows()}
+    print(f"  日期对齐: 基金={fund_date}, 指数={idx_dates}")
 
     # 基金元信息
     info = fund_master[[
