@@ -288,14 +288,16 @@ def prepare_table_for_date(df, target_date):
     return df
 
 
-def generate_html(all_tables: dict, dates: list, chart_data: dict):
-    """all_tables: {date_str: {bm: formatted_df, ...}, ...}  dates: 降序日期列表"""
+def generate_html(all_tables: dict, dates: list, chart_data: dict, index_returns: dict | None = None):
+    """all_tables: {date_str: DataFrame, ...}  dates: 降序日期列表  index_returns: {bm: daily_change%}"""
     os.makedirs(os.path.dirname(OUTPUT_HTML), exist_ok=True)
 
     latest_date = dates[0]
     date_str = str(latest_date)
     labels = COLUMN_LABELS.copy()
     benchmarks = ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]
+    if index_returns is None:
+        index_returns = {}
 
     # ── 辅助：为单个 group 生成 <table> HTML ──
     def _build_group_table(g_df, g_display):
@@ -382,9 +384,11 @@ def generate_html(all_tables: dict, dates: list, chart_data: dict):
         if bm not in tables:
             continue
         active = " active" if i == 0 else ""
+        idx_ret = index_returns.get(bm)
+        idx_line = f'<br><small style="color:#8899aa;font-weight:400;">指数 {idx_ret:+.2f}%</small>' if idx_ret is not None else ""
         tab_btns.append(
             f'<div class="tab-btn{active}" data-tab="{bm}">'
-            f'{INDEX_NAMES.get(bm, bm)} ({counts[bm]})</div>'
+            f'{INDEX_NAMES.get(bm, bm)} ({counts[bm]}){idx_line}</div>'
         )
         tab_wrappers.append(
             f'<div class="table-wrapper{active}" id="table-{bm}">\n'
@@ -842,7 +846,23 @@ def main():
     # 构建折线图数据
     chart_data = build_chart_data(df)
 
-    generate_html(all_tables, all_dates, chart_data)
+    # 读取指数日收益率（用于 Tab 标注）
+    index_returns = {}
+    try:
+        import pandas as pd
+        from config import INDEX_RETURN_PATH
+        ir = pd.read_parquet(INDEX_RETURN_PATH)
+        latest_date = str(df["date"].max())
+        ir_latest = ir[ir["date"] == ir["date"].max()]
+        for _, r in ir_latest.iterrows():
+            idx_code = r.get("index_code", "")
+            dc = r.get("daily_change")
+            if idx_code and pd.notna(dc):
+                index_returns[idx_code] = float(dc) * 100
+    except Exception:
+        pass
+
+    generate_html(all_tables, all_dates, chart_data, index_returns)
 
     print("\n完成!")
 
