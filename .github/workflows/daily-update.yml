@@ -129,7 +129,10 @@ jobs:
           "
 
       - name: 03 计算涨跌幅与超额（回填时也运行，确保指数数据刷新）
-        run: python 03_calculate_return.py
+        run: |
+          # 删除旧 CSI_ALL 缓存（切换至东方财富接口，强制重拉）
+          rm -f data/index/CSI_ALL.parquet
+          python 03_calculate_return.py
 
       - name: 历史数据回填（仅手动触发，一次性）
         if: ${{ inputs.backfill }}
