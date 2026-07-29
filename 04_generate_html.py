@@ -7,6 +7,7 @@ import pandas as pd
 
 from config import (
     EXCESS_RETURN_PATH,
+    INDEX_RETURN_PATH,
     NAV_DIR,
     INDEX_DIR,
     INDEX_NAMES,
@@ -849,10 +850,7 @@ def main():
     # 读取指数日收益率（用于 Tab 标注）
     index_returns = {}
     try:
-        import pandas as pd
-        from config import INDEX_RETURN_PATH
         ir = pd.read_parquet(INDEX_RETURN_PATH)
-        latest_date = str(df["date"].max())
         ir_latest = ir[ir["date"] == ir["date"].max()]
         for _, r in ir_latest.iterrows():
             idx_code = r.get("index_code", "")
