@@ -1021,6 +1021,7 @@ def save_results(
         if existing is not None and not existing.empty:
             existing = existing[existing["date"].astype(str).str[:10] != latest_str]
             merged = pd.concat([existing, index_perf], ignore_index=True)
+            merged = merged.drop_duplicates(subset=["date", "index_code"], keep="last")
         else:
             merged = index_perf
         safe_write_parquet(merged, INDEX_RETURN_PATH)
@@ -1035,6 +1036,7 @@ def save_results(
         if existing is not None and not existing.empty:
             existing = existing[existing["date"].astype(str).str[:10] != latest_str]
             merged = pd.concat([existing, excess_perf], ignore_index=True)
+            merged = merged.drop_duplicates(subset=["date", "fund_code"], keep="last")
             print(f"  合并历史数据: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行")
         else:
             merged = excess_perf
