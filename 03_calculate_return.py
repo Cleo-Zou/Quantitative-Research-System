@@ -377,9 +377,13 @@ def calculate_fund_performance(fund_master: pd.DataFrame) -> pd.DataFrame:
 # 3. 指数涨跌幅计算
 
 def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
-    # CSI_ALL 用 index_zh_a_hist（东方财富源，数据与同花顺一致）
+    # CSI_ALL 直连东方财富 API，失败则回退 sz000985
     if index_code == "CSI_ALL":
-        return _fetch_csi_all_eastmoney()
+        result = _fetch_csi_all_eastmoney()
+        if result is not None:
+            return result
+        print("  ⚠ 东方财富全失败，回退 sz000985...")
+        symbol = "sz000985"
 
     symbol = INDEX_AKSHARE_SYMBOLS.get(index_code)
     if symbol is None:
@@ -415,66 +419,56 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
 
 
 def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
-    """中证全指走东方财富源（ak.index_zh_a_hist），分块请求避免大响应被掐断。"""
-    max_attempts = 3  # 每个分块的重试次数
+    """中证全指走东方财富 HTTP API（绕过 AKShare 分页，一次请求全量数据）。"""
+    import json, urllib.request, ssl
 
-    def _try_fetch(start: str, end: str) -> pd.DataFrame | None:
-        for attempt in range(max_attempts):
+    # secid: 1.000985 = 上证, 0.000985 = 深证
+    for secid in ("1.000985", "0.000985"):
+        url = (
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            f"?secid={secid}"
+            "&fields1=f1,f2,f3,f4,f5,f6"
+            "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+            "&klt=101&fqt=0&end=20500101&lmt=20000"
+        )
+        for attempt in range(10):
             try:
-                df = ak.index_zh_a_hist(
-                    symbol="000985", period="daily",
-                    start_date=start, end_date=end,
-                )
-                if df is not None and not df.empty:
-                    return df
-                if attempt < max_attempts - 1:
-                    time.sleep(3 * (attempt + 1))
+                req = urllib.request.Request(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "https://quote.eastmoney.com/zs000985.html",
+                })
+                ctx = ssl.create_default_context()
+                with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+                    data = json.loads(resp.read().decode())
+                klines = data.get("data", {}).get("klines", [])
+                if not klines:
+                    print(f"    secid={secid} 无数据")
+                    break
+                rows = []
+                for line in klines:
+                    parts = line.split(",")
+                    if len(parts) < 3:
+                        continue
+                    rows.append({
+                        "date": pd.to_datetime(parts[0]).date(),
+                        "index_value": float(parts[2]),
+                    })
+                if not rows:
+                    break
+                result = pd.DataFrame(rows)
+                result = result.dropna(subset=["date", "index_value"])
+                result = result.sort_values("date").reset_index(drop=True)
+                print(f"  ✓ 中证全指(东方财富) secid={secid}: {len(result)} 条, 最新 {result['date'].max()}")
+                return result
             except Exception as e:
-                print(f"    {start}-{end} 第{attempt+1}次失败: {e}")
-                if attempt < max_attempts - 1:
-                    time.sleep(3 * (attempt + 1))
-        return None
+                if attempt < 9:
+                    wait = 3 + attempt * 2
+                    print(f"  [WARN] 第{attempt+1}次失败: {e}，{wait}s 后重试...")
+                    time.sleep(wait)
+                else:
+                    print(f"  [WARN] secid={secid} 10次全失败")
 
-    # 分 10 段拉取，每段约 2-3 年
-    chunks = [
-        ("20040101", "20061231"),
-        ("20070101", "20091231"),
-        ("20100101", "20121231"),
-        ("20130101", "20151231"),
-        ("20160101", "20181231"),
-        ("20190101", "20201231"),
-        ("20210101", "20221231"),
-        ("20230101", "20241231"),
-        ("20250101", "20260630"),
-        ("20260701", "20991231"),
-    ]
-    all_parts = []
-    for start, end in chunks:
-        print(f"  拉取 {start[:4]}-{end[:4]}...")
-        part = _try_fetch(start, end)
-        if part is not None:
-            all_parts.append(part)
-            print(f"    ✓ {len(part)} 条")
-        else:
-            print(f"    ✗ 失败")
-        time.sleep(2)
-
-    if not all_parts:
-        return None
-
-    combined = pd.concat(all_parts, ignore_index=True)
-    date_col = find_col(combined, "日期", "date")
-    close_col = find_col(combined, "收盘", "close")
-    if date_col is None or close_col is None:
-        return None
-    result = pd.DataFrame()
-    result["date"] = pd.to_datetime(combined[date_col]).dt.date
-    result["index_value"] = pd.to_numeric(combined[close_col], errors="coerce")
-    result = result.dropna(subset=["date", "index_value"])
-    result = result.drop_duplicates(subset=["date"], keep="last")
-    result = result.sort_values("date").reset_index(drop=True)
-    print(f"  ✓ 中证全指(东方财富): {len(result)} 条, 最新 {result['date'].max()}")
-    return result
+    return None
 
     # ── 5 次全失败才回退 sz000985 ──
     print("  ⚠ 回退 sz000985...")
