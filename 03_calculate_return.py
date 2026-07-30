@@ -415,21 +415,28 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
 
 
 def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
-    """中证全指走东方财富源（ak.index_zh_a_hist），与同花顺数据一致。"""
-    for attempt in range(1 + MAX_RETRIES):
+    """中证全指走东方财富源（ak.index_zh_a_hist），最多重试 5 次，间隔递增。"""
+    max_attempts = 5
+    for attempt in range(max_attempts):
         try:
             df = ak.index_zh_a_hist(
                 symbol="000985", period="daily",
                 start_date="19000101", end_date="20991231",
             )
             if df is None or df.empty:
-                return None
+                if attempt < max_attempts - 1:
+                    wait = 3 * (attempt + 1)
+                    print(f"  东方财富返回空，{wait}s 后重试 ({attempt+1}/{max_attempts})...")
+                    time.sleep(wait)
+                continue
 
             date_col = find_col(df, "日期", "date")
             close_col = find_col(df, "收盘", "close")
 
             if date_col is None or close_col is None:
-                return None
+                if attempt < max_attempts - 1:
+                    time.sleep(3 * (attempt + 1))
+                continue
 
             result = pd.DataFrame()
             result["date"] = pd.to_datetime(df[date_col]).dt.date
@@ -442,27 +449,12 @@ def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
             return result
 
         except Exception as e:
-            print(f"  [WARN] 东方财富第{attempt+1}次失败: {e}")
-            if attempt < MAX_RETRIES:
-                time.sleep(REQUEST_DELAY * 2)
-
-    # ── 兜底：东方财富不可用，回退 sz000985 ──
-    print("  ⚠ 东方财富不可用，回退 sz000985...")
-    try:
-        df = ak.stock_zh_index_daily(symbol="sz000985")
-        if df is not None and not df.empty:
-            date_col = find_col(df, "date", "日期")
-            close_col = find_col(df, "close", "收盘")
-            if date_col and close_col:
-                result = pd.DataFrame()
-                result["date"] = pd.to_datetime(df[date_col]).dt.date
-                result["index_value"] = pd.to_numeric(df[close_col], errors="coerce")
-                result = result.dropna(subset=["date", "index_value"])
-                result = result.sort_values("date").reset_index(drop=True)
-                print(f"  ✓ 中证全指(sz000985兜底): {len(result)} 条, 最新 {result['date'].max()}")
-                return result
-    except Exception as e:
-        print(f"  [WARN] sz000985 兜底也失败: {e}")
+            if attempt < max_attempts - 1:
+                wait = 3 * (attempt + 1)
+                print(f"  [WARN] 东方财富第{attempt+1}次失败: {e}，{wait}s 后重试...")
+                time.sleep(wait)
+            else:
+                print(f"  [ERROR] 东方财富{max_attempts}次全部失败，中证全指本次无数据")
 
     return None
 
