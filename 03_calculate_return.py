@@ -415,17 +415,30 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
 
 
 def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
-    """中证全指走东方财富源（ak.index_zh_a_hist），最多重试 5 次，间隔递增。"""
-    max_attempts = 5
+    """中证全指走东方财富源（ak.index_zh_a_hist），10 次重试，间隔递增。"""
+    import os as _os
+    cache_path = _os.path.join(INDEX_DIR, "CSI_ALL.parquet")
+    cached = safe_read_parquet(cache_path)
+    has_cache = cached is not None and not cached.empty
+    if has_cache:
+        # 有缓存只拉最近 90 天，大幅减小请求量
+        from datetime import timedelta as _td
+        start_dt = date.today() - _td(days=90)
+        start_str = start_dt.strftime("%Y%m%d")
+        print(f"  已有缓存，增量拉取 {start_str} 至今...")
+    else:
+        start_str = "19000101"
+
+    max_attempts = 10
     for attempt in range(max_attempts):
         try:
             df = ak.index_zh_a_hist(
                 symbol="000985", period="daily",
-                start_date="19000101", end_date="20991231",
+                start_date=start_str, end_date="20991231",
             )
             if df is None or df.empty:
                 if attempt < max_attempts - 1:
-                    wait = 3 * (attempt + 1)
+                    wait = 5 + attempt * 3
                     print(f"  东方财富返回空，{wait}s 后重试 ({attempt+1}/{max_attempts})...")
                     time.sleep(wait)
                 continue
@@ -435,7 +448,7 @@ def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
 
             if date_col is None or close_col is None:
                 if attempt < max_attempts - 1:
-                    time.sleep(3 * (attempt + 1))
+                    time.sleep(5 + attempt * 3)
                 continue
 
             result = pd.DataFrame()
@@ -445,12 +458,18 @@ def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
             )
             result = result.dropna(subset=["date", "index_value"])
             result = result.sort_values("date").reset_index(drop=True)
+            # 增量拉取时合并旧缓存
+            if has_cache:
+                cached["date"] = pd.to_datetime(cached["date"]).dt.date
+                result = pd.concat([cached, result], ignore_index=True)
+                result = result.drop_duplicates(subset=["date"], keep="last")
+                result = result.sort_values("date").reset_index(drop=True)
             print(f"  ✓ 中证全指(东方财富): {len(result)} 条, 最新 {result['date'].max()}")
             return result
 
         except Exception as e:
             if attempt < max_attempts - 1:
-                wait = 3 * (attempt + 1)
+                wait = 5 + attempt * 3
                 print(f"  [WARN] 东方财富第{attempt+1}次失败: {e}，{wait}s 后重试...")
                 time.sleep(wait)
             else:
