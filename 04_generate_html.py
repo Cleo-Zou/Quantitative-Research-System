@@ -822,22 +822,37 @@ initTableEvents();
         }});
         if (!query) return;
 
-        // 只在当前活跃 Tab 下搜索
-        var wrapper = document.getElementById('table-' + activeTab);
-        if (!wrapper) return;
-        var rows = wrapper.querySelectorAll('tbody tr');
-        var found = null;
+        // 在所有四个指数 Tab 下搜索
         var qLower = query.toLowerCase();
-        rows.forEach(function(tr) {{
-            var code = (tr.getAttribute('data-code') || '').toLowerCase();
-            var name = '';
-            var td2 = tr.querySelector('td:nth-child(2)');
-            if (td2) name = td2.textContent.toLowerCase();
-            if (!found && (code.includes(qLower) || name.includes(qLower))) {{
-                found = tr;
-            }}
+        var found = null;
+        var foundTab = null;
+        ['HS300', 'ZZ500', 'ZZ1000', 'CSI_ALL'].forEach(function(bm) {{
+            if (found) return;
+            var wrapper = document.getElementById('table-' + bm);
+            if (!wrapper) return;
+            var rows = wrapper.querySelectorAll('tbody tr');
+            rows.forEach(function(tr) {{
+                if (found) return;
+                var code = (tr.getAttribute('data-code') || '').toLowerCase();
+                var name = '';
+                var td2 = tr.querySelector('td:nth-child(2)');
+                if (td2) name = td2.textContent.toLowerCase();
+                if (code.includes(qLower) || name.includes(qLower)) {{
+                    found = tr;
+                    foundTab = bm;
+                }}
+            }});
         }});
         if (found) {{
+            // 切换到匹配到的指数 Tab
+            if (foundTab) {{
+                document.querySelectorAll('.tab-btn').forEach(function(b) {{ b.classList.remove('active'); }});
+                var targetBtn = document.querySelector('.tab-btn[data-tab=\"' + foundTab + '\"]');
+                if (targetBtn) targetBtn.classList.add('active');
+                document.querySelectorAll('.table-wrapper').forEach(function(t) {{ t.classList.remove('active'); }});
+                var targetWrapper = document.getElementById('table-' + foundTab);
+                if (targetWrapper) targetWrapper.classList.add('active');
+            }}
             found.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
             found.classList.add('flash-highlight');
             found.style.transition = 'background-color 0.3s';
@@ -848,13 +863,6 @@ initTableEvents();
                 found.style.backgroundColor = '';
             }}, 3000);
         }}
-    }});
-
-    // 跟踪活跃 Tab
-    document.querySelectorAll('.tab-btn').forEach(function(btn) {{
-        btn.addEventListener('click', function() {{
-            activeTab = this.getAttribute('data-tab');
-        }});
     }});
 }})();
 
