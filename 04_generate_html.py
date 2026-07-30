@@ -289,16 +289,17 @@ def prepare_table_for_date(df, target_date):
     return df
 
 
-def generate_html(all_tables: dict, dates: list, chart_data: dict, index_returns: dict | None = None):
-    """all_tables: {date_str: DataFrame, ...}  dates: 降序日期列表  index_returns: {bm: daily_change%}"""
+def generate_html(all_tables: dict, dates: list, chart_data: dict, all_index_returns: dict | None = None):
+    """all_tables: {date_str: DataFrame, ...}  dates: 降序日期列表  all_index_returns: {date_str: {bm: daily_change%}}"""
     os.makedirs(os.path.dirname(OUTPUT_HTML), exist_ok=True)
 
     latest_date = dates[0]
     date_str = str(latest_date)
     labels = COLUMN_LABELS.copy()
     benchmarks = ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]
-    if index_returns is None:
-        index_returns = {}
+    if all_index_returns is None:
+        all_index_returns = {}
+    idx_current = all_index_returns.get(date_str, {})
 
     # ── 辅助：为单个 group 生成 <table> HTML ──
     def _build_group_table(g_df, g_display):
@@ -385,7 +386,7 @@ def generate_html(all_tables: dict, dates: list, chart_data: dict, index_returns
         if bm not in tables:
             continue
         active = " active" if i == 0 else ""
-        idx_ret = index_returns.get(bm)
+        idx_ret = idx_current.get(bm)
         idx_line = f'<br><small style="color:#8899aa;font-weight:400;">指数 {idx_ret:+.2f}%</small>' if idx_ret is not None else ""
         tab_btns.append(
             f'<div class="tab-btn{active}" data-tab="{bm}">'
@@ -519,8 +520,11 @@ def generate_html(all_tables: dict, dates: list, chart_data: dict, index_returns
       {", ".join(f"{INDEX_NAMES.get(bm, bm)} {counts.get(bm, 0)}只" for bm in benchmarks if bm in tables)}</span>
 </div>
 
-<div class="tabs">
+<div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:16px;flex-wrap:wrap;">
+<div class="tabs" style="margin-bottom:0;">
     {"".join(tab_btns)}
+</div>
+<input id="fund-search" type="text" placeholder="🔍 搜基金代码/简称" style="font-family:inherit;font-size:13px;background:#152028;color:#d0d6dc;border:1px solid #1e3040;border-radius:4px;padding:8px 12px;width:200px;margin-left:auto;" autocomplete="off">
 </div>
 
 {"".join(tab_wrappers)}
@@ -546,6 +550,7 @@ var CHART_DATA = {chart_json_str};
 // ── 日期切换数据 ──
 var DATE_TABLES = {date_tables_str};
 var ALL_DATES = {dates_str};
+var ALL_INDEX_RETURNS = {json.dumps(all_index_returns, ensure_ascii=False)};
 
 // ── 日期切换 ──
 (function() {{
@@ -576,6 +581,17 @@ var ALL_DATES = {dates_str};
                 }}
             }});
             document.getElementById('fund-count').textContent = total;
+
+            // 更新 Tab 下的指数收益率
+            var idxRet = ALL_INDEX_RETURNS[date] || {{}};
+            ['HS300', 'ZZ500', 'ZZ1000', 'CSI_ALL'].forEach(function(bm) {{
+                var btn = document.querySelector('.tab-btn[data-tab=\"' + bm + '\"]');
+                if (!btn) return;
+                var label = btn.childNodes[0] ? btn.childNodes[0].textContent.trim() : '';
+                var ret = idxRet[bm];
+                var retHtml = ret !== undefined ? '<br><small style=\"color:#8899aa;font-weight:400;\">指数 ' + (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%</small>' : '';
+                btn.innerHTML = label + retHtml;
+            }});
 
             // 重新绑定事件
             initTableEvents();
@@ -787,6 +803,61 @@ document.addEventListener('keydown', function(e) {{
 // ── 初始化表格事件 ──
 initTableEvents();
 
+// ── 搜索基金（滚动 + 闪蓝光） ──
+(function() {{
+    var searchInput = document.getElementById('fund-search');
+    if (!searchInput) return;
+    var flashTimer = null;
+    var activeTab = 'HS300';
+
+    searchInput.addEventListener('input', function() {{
+        var query = this.value.trim();
+        if (flashTimer) {{ clearTimeout(flashTimer); }}
+        // 清除上次高亮
+        document.querySelectorAll('tr.flash-highlight').forEach(function(tr) {{
+            tr.classList.remove('flash-highlight');
+            tr.style.transition = '';
+            tr.style.boxShadow = '';
+            tr.style.backgroundColor = '';
+        }});
+        if (!query) return;
+
+        // 只在当前活跃 Tab 下搜索
+        var wrapper = document.getElementById('table-' + activeTab);
+        if (!wrapper) return;
+        var rows = wrapper.querySelectorAll('tbody tr');
+        var found = null;
+        var qLower = query.toLowerCase();
+        rows.forEach(function(tr) {{
+            var code = (tr.getAttribute('data-code') || '').toLowerCase();
+            var name = '';
+            var td2 = tr.querySelector('td:nth-child(2)');
+            if (td2) name = td2.textContent.toLowerCase();
+            if (!found && (code.includes(qLower) || name.includes(qLower))) {{
+                found = tr;
+            }}
+        }});
+        if (found) {{
+            found.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+            found.classList.add('flash-highlight');
+            found.style.transition = 'background-color 0.3s';
+            found.style.backgroundColor = 'rgba(61,126,255,0.3)';
+            flashTimer = setTimeout(function() {{
+                found.classList.remove('flash-highlight');
+                found.style.transition = 'background-color 1.5s';
+                found.style.backgroundColor = '';
+            }}, 3000);
+        }}
+    }});
+
+    // 跟踪活跃 Tab
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {{
+        btn.addEventListener('click', function() {{
+            activeTab = this.getAttribute('data-tab');
+        }});
+    }});
+}})();
+
 // ── 窗口缩放时重绘 ──
 window.addEventListener('resize', function() {{
     if (modalOverlay.classList.contains('active')) myChart.resize();
@@ -847,20 +918,22 @@ def main():
     # 构建折线图数据
     chart_data = build_chart_data(df)
 
-    # 读取指数日收益率（用于 Tab 标注）
-    index_returns = {}
+    # 读取所有日期指数日收益率（Tab 标注随日期切换联动）
+    all_index_returns = {}
     try:
         ir = pd.read_parquet(INDEX_RETURN_PATH)
-        ir_latest = ir[ir["date"] == ir["date"].max()]
-        for _, r in ir_latest.iterrows():
+        for _, r in ir.iterrows():
+            d_str = str(r["date"])
             idx_code = r.get("index_code", "")
             dc = r.get("daily_change")
+            if d_str not in all_index_returns:
+                all_index_returns[d_str] = {}
             if idx_code and pd.notna(dc):
-                index_returns[idx_code] = float(dc) * 100
+                all_index_returns[d_str][idx_code] = float(dc) * 100
     except Exception:
         pass
 
-    generate_html(all_tables, all_dates, chart_data, index_returns)
+    generate_html(all_tables, all_dates, chart_data, all_index_returns)
 
     print("\n完成!")
 
