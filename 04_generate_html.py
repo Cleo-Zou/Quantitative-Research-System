@@ -923,7 +923,7 @@ def main():
     try:
         ir = pd.read_parquet(INDEX_RETURN_PATH)
         for _, r in ir.iterrows():
-            d_str = str(r["date"])
+            d_str = str(r["date"])[:10]
             idx_code = r.get("index_code", "")
             dc = r.get("daily_change")
             if d_str not in all_index_returns:
