@@ -1001,43 +1001,37 @@ def save_results(
     os.makedirs(RETURN_DIR, exist_ok=True)
 
     if not fund_perf.empty:
-        latest_str = str(fund_perf["date"].max())[:10]
         existing = safe_read_parquet(FUND_RETURN_PATH)
         if existing is not None and not existing.empty:
-            existing = existing[existing["date"].astype(str).str[:10] != latest_str]
             merged = pd.concat([existing, fund_perf], ignore_index=True)
-            print(f"  合并历史数据: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行")
+            merged = merged.drop_duplicates(subset=["date", "fund_code"], keep="last")
+            print(f"  合并历史: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行 ({merged['date'].nunique()} 交易日)")
         else:
             merged = fund_perf
         safe_write_parquet(merged, FUND_RETURN_PATH)
         print(f"✓ 基金涨跌幅: {FUND_RETURN_PATH}")
-        print(f"  {len(merged)} 行, {merged['date'].nunique()} 个交易日, 最新 {merged['date'].max()}")
     else:
         print("⚠ 基金数据为空，跳过")
 
     if not index_perf.empty:
-        latest_str = str(index_perf["date"].max())[:10]
         existing = safe_read_parquet(INDEX_RETURN_PATH)
         if existing is not None and not existing.empty:
-            existing = existing[existing["date"].astype(str).str[:10] != latest_str]
             merged = pd.concat([existing, index_perf], ignore_index=True)
             merged = merged.drop_duplicates(subset=["date", "index_code"], keep="last")
+            print(f"  合并历史: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行 ({merged['date'].nunique()} 交易日)")
         else:
             merged = index_perf
         safe_write_parquet(merged, INDEX_RETURN_PATH)
         print(f"✓ 指数涨跌幅: {INDEX_RETURN_PATH}")
-        print(f"  {len(merged)} 行, {merged['date'].nunique()} 个交易日")
     else:
         print("⚠ 指数数据为空，跳过")
 
     if not excess_perf.empty:
-        latest_str = str(excess_perf["date"].max())[:10]
         existing = safe_read_parquet(EXCESS_RETURN_PATH)
         if existing is not None and not existing.empty:
-            existing = existing[existing["date"].astype(str).str[:10] != latest_str]
             merged = pd.concat([existing, excess_perf], ignore_index=True)
             merged = merged.drop_duplicates(subset=["date", "fund_code"], keep="last")
-            print(f"  合并历史数据: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行")
+            print(f"  合并历史: 此前 {len(existing)} 行 → 合并后 {len(merged)} 行 ({merged['date'].nunique()} 交易日)")
         else:
             merged = excess_perf
         safe_write_parquet(merged, EXCESS_RETURN_PATH)
