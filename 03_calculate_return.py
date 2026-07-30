@@ -415,46 +415,60 @@ def _fetch_index_history(index_code: str) -> pd.DataFrame | None:
 
 
 def _fetch_csi_all_eastmoney() -> pd.DataFrame | None:
-    """中证全指走东方财富源（ak.index_zh_a_hist），10 次重试，间隔递增。"""
-    max_attempts = 10
-    for attempt in range(max_attempts):
-        try:
-            df = ak.index_zh_a_hist(
-                symbol="000985", period="daily",
-                start_date="19000101", end_date="20991231",
-            )
-            if df is None or df.empty:
+    """中证全指走东方财富源（ak.index_zh_a_hist），分块请求避免大响应被掐断。"""
+    max_attempts = 3  # 每个分块的重试次数
+
+    def _try_fetch(start: str, end: str) -> pd.DataFrame | None:
+        for attempt in range(max_attempts):
+            try:
+                df = ak.index_zh_a_hist(
+                    symbol="000985", period="daily",
+                    start_date=start, end_date=end,
+                )
+                if df is not None and not df.empty:
+                    return df
                 if attempt < max_attempts - 1:
-                    wait = 5 + attempt * 3
-                    print(f"  东方财富返回空，{wait}s 后重试 ({attempt+1}/{max_attempts})...")
-                    time.sleep(wait)
-                continue
-
-            date_col = find_col(df, "日期", "date")
-            close_col = find_col(df, "收盘", "close")
-
-            if date_col is None or close_col is None:
+                    time.sleep(3 * (attempt + 1))
+            except Exception as e:
+                print(f"    {start}-{end} 第{attempt+1}次失败: {e}")
                 if attempt < max_attempts - 1:
-                    time.sleep(5 + attempt * 3)
-                continue
+                    time.sleep(3 * (attempt + 1))
+        return None
 
-            result = pd.DataFrame()
-            result["date"] = pd.to_datetime(df[date_col]).dt.date
-            result["index_value"] = pd.to_numeric(
-                df[close_col], errors="coerce"
-            )
-            result = result.dropna(subset=["date", "index_value"])
-            result = result.sort_values("date").reset_index(drop=True)
-            print(f"  ✓ 中证全指(东方财富): {len(result)} 条, 最新 {result['date'].max()}")
-            return result
+    # 分 4 段拉取：2004-2012, 2013-2019, 2020-2023, 2024-今
+    chunks = [
+        ("20040101", "20121231"),
+        ("20130101", "20191231"),
+        ("20200101", "20231231"),
+        ("20240101", "20991231"),
+    ]
+    all_parts = []
+    for start, end in chunks:
+        print(f"  拉取 {start[:4]}-{end[:4]}...")
+        part = _try_fetch(start, end)
+        if part is not None:
+            all_parts.append(part)
+            print(f"    ✓ {len(part)} 条")
+        else:
+            print(f"    ✗ 失败")
+        time.sleep(2)
 
-        except Exception as e:
-            if attempt < max_attempts - 1:
-                wait = 5 + attempt * 3
-                print(f"  [WARN] 东方财富第{attempt+1}次失败: {e}，{wait}s 后重试...")
-                time.sleep(wait)
-            else:
-                print(f"  [ERROR] 东方财富{max_attempts}次全部失败")
+    if not all_parts:
+        return None
+
+    combined = pd.concat(all_parts, ignore_index=True)
+    date_col = find_col(combined, "日期", "date")
+    close_col = find_col(combined, "收盘", "close")
+    if date_col is None or close_col is None:
+        return None
+    result = pd.DataFrame()
+    result["date"] = pd.to_datetime(combined[date_col]).dt.date
+    result["index_value"] = pd.to_numeric(combined[close_col], errors="coerce")
+    result = result.dropna(subset=["date", "index_value"])
+    result = result.drop_duplicates(subset=["date"], keep="last")
+    result = result.sort_values("date").reset_index(drop=True)
+    print(f"  ✓ 中证全指(东方财富): {len(result)} 条, 最新 {result['date'].max()}")
+    return result
 
     # ── 5 次全失败才回退 sz000985 ──
     print("  ⚠ 回退 sz000985...")
