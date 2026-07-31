@@ -277,10 +277,25 @@ def backfill_fund_returns(fund_codes: list[str], all_dates: list[date]):
                 # max_drawdown
                 peak = np.max(adj_vals[:i + 1])
                 row["max_drawdown"] = float(adj_vals[i] / peak - 1) if peak > 0 else None
+                # risk metrics (需要 ≥20 个数据点)
+                if i >= 20:
+                    seg = adj_vals[:i + 1]
+                    seg = seg[~np.isnan(seg)]
+                    if len(seg) >= 20:
+                        dr = seg[1:] / seg[:-1] - 1
+                        n_dr = len(dr)
+                        cum = seg[-1] / seg[0] - 1
+                        ann_ret = (1 + cum) ** (252 / n_dr) - 1
+                        ann_vol = float(np.std(dr)) * np.sqrt(252)
+                        row["annual_return"] = float(ann_ret)
+                        row["annual_volatility"] = float(ann_vol)
+                        row["sharpe_ratio"] = float((ann_ret - 0.02) / ann_vol) if ann_vol > 0 else None
+                        row["calmar_ratio"] = float(ann_ret / abs(row["max_drawdown"])) if row.get("max_drawdown") and row["max_drawdown"] < 0 else None
             else:
                 for k in ["day_20_change", "month_1_change", "month_3_change", "month_6_change",
                            "ytd_change", "year_1_change", "year_3_change", "year_5_change",
-                           "since_launch_change", "max_drawdown"]:
+                           "since_launch_change", "max_drawdown",
+                           "annual_return", "annual_volatility", "sharpe_ratio", "calmar_ratio"]:
                     row[k] = None
 
             results.append(row)
