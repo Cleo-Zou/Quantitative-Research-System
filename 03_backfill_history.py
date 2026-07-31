@@ -317,11 +317,12 @@ def backfill_fund_returns(fund_codes: list[str], all_dates: list[date]):
 
 
 def backfill_index_returns(all_dates: list[date]):
-    """回填指数涨跌幅 — 从已有指数缓存中计算每个交易日"""
+    """回填指数涨跌幅 — 向量化，与基金回填同口径"""
     print(f"\n{'=' * 60}")
-    print("回填指数涨跌幅")
+    print("回填指数涨跌幅（向量化）")
     print(f"{'=' * 60}")
 
+    all_dates_set = set(all_dates)
     results = []
     for idx_code in ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]:
         path = os.path.join(INDEX_DIR, f"{idx_code}.parquet")
@@ -331,23 +332,47 @@ def backfill_index_returns(all_dates: list[date]):
             continue
         idx_df["date"] = pd.to_datetime(idx_df["date"]).dt.date
         idx_df = idx_df.sort_values("date").reset_index(drop=True)
-        idx_dates = set(idx_df["date"].unique())
 
-        for target in all_dates:
-            if target not in idx_dates:
+        vals = idx_df["index_value"].values
+        dates_arr = idx_df["date"].values
+        N = len(idx_df)
+
+        for i in range(N):
+            d = idx_df.iloc[i]["date"]
+            if d not in all_dates_set:
                 continue
-            nav = idx_df.copy()
-            nav = nav.rename(columns={"index_value": "adj_nav"})
-            nav["unit_nav"] = nav["adj_nav"]
-            try:
-                perf = calc_performance_for_date(nav, target)
-                if perf:
-                    perf["index_code"] = idx_code
-                    perf["index_name"] = INDEX_NAMES.get(idx_code, idx_code)
-                    results.append(perf)
-            except Exception:
-                pass
-        print(f"  ✓ {INDEX_NAMES.get(idx_code, idx_code)}")
+            row = {"index_code": idx_code, "index_name": INDEX_NAMES.get(idx_code, idx_code), "date": d}
+            v = vals[i]
+
+            # daily
+            row["daily_change"] = float(v / vals[i - 1] - 1) if i > 0 else None
+            # week
+            row["week_change"] = float(v / vals[i - 5] - 1) if i >= 5 else None
+            # day_20
+            j20 = max(0, i - 20)
+            row["day_20_change"] = float(v / vals[j20] - 1) if j20 < i else None
+            # month
+            for m, label in [(21, "month_1_change"), (63, "month_3_change"), (126, "month_6_change")]:
+                jm = max(0, i - m)
+                row[label] = float(v / vals[jm] - 1) if jm < i else None
+            # ytd
+            ys = i
+            while ys > 0 and dates_arr[ys - 1] >= date(d.year, 1, 1):
+                ys -= 1
+            row["ytd_change"] = float(v / vals[ys] - 1) if ys < i else None
+            # year
+            for y, label in [(252, "year_1_change"), (756, "year_3_change"), (1260, "year_5_change")]:
+                jy = max(0, i - y)
+                row[label] = float(v / vals[jy] - 1) if jy < i else None
+            # since_launch
+            row["since_launch_change"] = float(v / vals[0] - 1) if i > 0 else None
+            # max_drawdown
+            peak = np.max(vals[:i + 1])
+            row["max_drawdown"] = float(v / peak - 1) if peak > 0 else None
+
+            results.append(row)
+
+        print(f"  ✓ {INDEX_NAMES.get(idx_code, idx_code)}: {len([r for r in results if r['index_code'] == idx_code])} 行")
 
     if not results:
         return pd.DataFrame()
