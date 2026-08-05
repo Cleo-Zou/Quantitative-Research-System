@@ -697,6 +697,32 @@ function bindTableSort(table) {{
             }});
         }}
         rows.forEach(function(r) {{ tb.appendChild(r); }});
+
+        // ── 百分位标记 ──
+        // 先清除旧标记
+        rows.forEach(function(r) {{
+            r.style.boxShadow = '';
+            r.style.backgroundColor = '';
+            var badge = r.querySelector('.pct-badge');
+            if (badge) badge.remove();
+        }});
+        if (dir && rows.length >= 5) {{
+            var p20 = Math.max(0, Math.ceil(rows.length * 0.20) - 1);
+            var p50 = Math.max(0, Math.ceil(rows.length * 0.50) - 1);
+            [p20, p50].forEach(function(pos, idx) {{
+                if (pos >= rows.length) return;
+                var label = idx === 0 ? '前20%' : '前50%';
+                var td = rows[pos].querySelectorAll('td')[colIdx];
+                if (!td || td.querySelector('.pct-badge')) return;
+                var badge = document.createElement('span');
+                badge.className = 'pct-badge';
+                badge.textContent = label;
+                badge.style.cssText = 'font-size:10px;color:#3d7eff;margin-left:4px;font-weight:500;';
+                td.appendChild(badge);
+                rows[pos].style.boxShadow = 'inset 2px 0 0 #3d7eff';
+                rows[pos].style.backgroundColor = 'rgba(61,126,255,0.08)';
+            }});
+        }}
     }}
 }}
 
