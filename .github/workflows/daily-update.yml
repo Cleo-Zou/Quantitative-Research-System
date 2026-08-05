@@ -13,7 +13,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -47,7 +47,6 @@ jobs:
           path: |
             data/nav/
             data/index/
-            data/return/
             data/fund_master.parquet
             data/fund_detail_cache.parquet
           key: fund-data-v3-${{ runner.os }}-${{ github.run_id }}
@@ -134,6 +133,14 @@ jobs:
 
       - name: 03 计算涨跌幅与超额（回填后运行以补齐风险指标）
         run: python 03_calculate_return.py
+
+      - name: 提交 return 数据到 Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data/return/
+          git diff --cached --quiet || git commit -m "data: 收益数据更新 ${{ steps.validate.outputs.data_date }}"
+          git push origin HEAD:main || echo "push skipped (no changes or conflict)"
 
       - name: 04 生成绩效 HTML
         run: python 04_generate_html.py

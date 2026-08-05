@@ -28,7 +28,6 @@ venv/
 # Generated data (output of pipeline scripts)
 data/nav/
 data/index/
-data/return/
 data/log/
 data/*.parquet
 data/*.csv
