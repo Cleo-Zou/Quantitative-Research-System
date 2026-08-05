@@ -317,16 +317,45 @@ def backfill_fund_returns(fund_codes: list[str], all_dates: list[date]):
 
 
 def backfill_index_returns(all_dates: list[date]):
-    """回填指数涨跌幅 — 向量化，与基金回填同口径"""
+    """回填指数涨跌幅 — 向量化，无缓存时自动拉取东财数据"""
     print(f"\n{'=' * 60}")
     print("回填指数涨跌幅（向量化）")
     print(f"{'=' * 60}")
+
+    # 确保指数数据可用（回填先于 03 运行时缓存可能缺失）
+    def _fetch_em(secid, idx_code):
+        import json, urllib.request, ssl
+        url = (f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}"
+               "&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+               "&klt=101&fqt=0&end=20500101&lmt=20000")
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": f"https://quote.eastmoney.com/zs{secid.split('.')[1]}.html"})
+                with urllib.request.urlopen(req, timeout=30, context=ssl.create_default_context()) as resp:
+                    data = json.loads(resp.read().decode())
+                klines = data.get("data", {}).get("klines", [])
+                if not klines: return None
+                rows = [{"date": pd.to_datetime(l.split(",")[0]).date(), "index_value": float(l.split(",")[2])} for l in klines if len(l.split(",")) >= 3]
+                df = pd.DataFrame(rows).dropna().sort_values("date").reset_index(drop=True)
+                return df if not df.empty else None
+            except Exception as e:
+                if attempt < 2: time.sleep(3 * (attempt + 1))
+        return None
+    em_secids = {"HS300": "1.000300", "ZZ500": "1.000905", "ZZ1000": "1.000852", "CSI_ALL": "1.000985"}
 
     all_dates_set = set(all_dates)
     results = []
     for idx_code in ["HS300", "ZZ500", "ZZ1000", "CSI_ALL"]:
         path = os.path.join(INDEX_DIR, f"{idx_code}.parquet")
         idx_df = safe_read_parquet(path)
+        if idx_df is None or idx_df.empty:
+            # 尝试从东财拉取
+            secid = em_secids.get(idx_code, "")
+            if secid:
+                print(f"  {idx_code} 本地无数据，从东财拉取...")
+                idx_df = _fetch_em(secid, idx_code)
+                if idx_df is not None:
+                    safe_write_parquet(idx_df, path)
         if idx_df is None or idx_df.empty:
             print(f"  ✗ {idx_code} 无数据，跳过")
             continue
