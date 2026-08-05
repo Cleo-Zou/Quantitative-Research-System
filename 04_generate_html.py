@@ -714,10 +714,11 @@ function bindTableSort(table) {{
                 var label = idx === 0 ? '前20%' : '前50%';
                 var td = rows[pos].querySelectorAll('td')[colIdx];
                 if (!td || td.querySelector('.pct-badge')) return;
+                td.style.position = 'relative';
                 var badge = document.createElement('span');
                 badge.className = 'pct-badge';
                 badge.textContent = label;
-                badge.style.cssText = 'font-size:10px;color:#3d7eff;margin-left:4px;font-weight:500;';
+                badge.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);font-size:9px;color:#3d7eff;font-weight:500;pointer-events:none;white-space:nowrap;';
                 td.appendChild(badge);
                 rows[pos].style.boxShadow = 'inset 2px 0 0 #3d7eff';
                 rows[pos].style.backgroundColor = 'rgba(61,126,255,0.08)';
