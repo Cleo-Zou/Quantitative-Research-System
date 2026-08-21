@@ -1,7 +1,7 @@
 
 # 指数增强基金量化研究系统 — 项目报告
 
-> **Quantitative Research System for Enhanced Index Funds**
+> **Enhanced Index Fund Quantitative Research System**
 >
 
 

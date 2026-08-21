@@ -1,7 +1,7 @@
 
-# Quantitative Research System for Enhanced Index Funds
+# Enhanced Index Fund Quantitative Research System
 
-[![Daily Update](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml/badge.svg)](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml)
+[![Daily Update](https://github.com/Cleo-Zou/enhanced-index-fund-research/actions/workflows/daily-update.yml/badge.svg)](https://github.com/Cleo-Zou/enhanced-index-fund-research/actions/workflows/daily-update.yml)
 
 A complete quantitative research system for enhanced index funds — covering fund pool construction, NAV collection, return & risk calculation, automated research interpretation, and visualization. Powered by a **Rule-based Research Interpretation Engine** that generates fund Profiles, Research Tags, and five-part Research Summaries without black-box models.
 
@@ -183,9 +183,9 @@ MIT
 
 # 指数增强基金量化研究系统
 
-[![每日更新](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml/badge.svg)](https://github.com/Cleo-Zou/Quantitative-Research-System/actions/workflows/daily-update.yml)
+[![每日更新](https://github.com/Cleo-Zou/enhanced-index-fund-research/actions/workflows/daily-update.yml/badge.svg)](https://github.com/Cleo-Zou/enhanced-index-fund-research/actions/workflows/daily-update.yml)
 
-一套完整的指数增强基金量化研究系统，覆盖基金池构建、净值采集、收益计算、风险指标评估、研究解读自动生成与可视化展示的全流程。核心为基于 **确定性规则的自动化研究解读引擎（Rule-based Research Interpretation Engine）**，不依赖大模型，自动生成基金画像、研究标签和五段研究摘要。
+一套完整的指数增强基金量化研究系统，覆盖基金池构建、净值采集、收益计算、风险指标评估、研究解读自动生成与可视化展示的全流程。核心为基于 **确定性规则的自动化研究解读引擎（Rule-based Research Interpretation Engine）**，自动生成基金画像、研究标签和五段研究摘要。
 
 ---
 
